@@ -15,7 +15,7 @@
 #include "lvgl.h"
 #include "lvgl_helpers.h"
 #include "lua_engine.h"     // Add Lua engine support
-#include "main_lua.h"       // Add embedded Lua script
+#include "main_simple_lua.h" // Add embedded simple Lua script
 
 // Debug tag
 static const char *TAG = "MAIN_APP";
@@ -247,9 +247,9 @@ void run_lua_demo(void)
     
     ESP_LOGI(TAG, "Lua engine initialized successfully");
     
-    // Load and execute embedded main.lua script
-    ESP_LOGI(TAG, "Executing embedded Lua script...");
-    int result = lua_engine_exec_string(g_lua_state, main_lua_script);
+            // Load and execute embedded simple demo script
+    ESP_LOGI(TAG, "Loading embedded simple demo script...");
+    int result = lua_engine_exec_string(g_lua_state, main_simple_lua_script);
     if (result != 0) {
         ESP_LOGE(TAG, "Failed to execute embedded Lua script");
         lua_engine_deinit(g_lua_state);

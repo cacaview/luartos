@@ -56,8 +56,12 @@ int lvgl_anim_off(lua_State* L);
 
 // Alignment constants
 int lvgl_align_center(lua_State* L);
+int lvgl_align_top_left(lua_State* L);
 int lvgl_align_top_mid(lua_State* L);
+int lvgl_align_top_right(lua_State* L);
+int lvgl_align_bottom_left(lua_State* L);
 int lvgl_align_bottom_mid(lua_State* L);
+int lvgl_align_bottom_right(lua_State* L);
 int lvgl_align_out_top_mid(lua_State* L);
 
 // Part constants

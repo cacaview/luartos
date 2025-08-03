@@ -1,5 +1,6 @@
 #include "lua_engine.h"
 #include "lvgl_bindings.h"
+#include "sdcard_lua_bindings.h"
 #include <string.h>
 
 static const char *TAG = "LUA_ENGINE";
@@ -37,6 +38,11 @@ lua_State* lua_engine_init(void) {
         lua_close(L);
         return NULL;
     }
+    
+    // Register SD card bindings
+    ESP_LOGI(TAG, "Registering SD card bindings...");
+    luaL_requiref(L, "sdcard", luaopen_sdcard, 1);
+    lua_pop(L, 1); // Remove the module table from stack
     
     // Log final memory usage
     ESP_LOGI(TAG, "Lua engine initialized successfully");

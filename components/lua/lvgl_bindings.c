@@ -247,13 +247,33 @@ int lvgl_align_center(lua_State* L) {
     return 1;
 }
 
+int lvgl_align_top_left(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_TOP_LEFT);
+    return 1;
+}
+
 int lvgl_align_top_mid(lua_State* L) {
     lua_pushinteger(L, LV_ALIGN_TOP_MID);
     return 1;
 }
 
+int lvgl_align_top_right(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_TOP_RIGHT);
+    return 1;
+}
+
+int lvgl_align_bottom_left(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_BOTTOM_LEFT);
+    return 1;
+}
+
 int lvgl_align_bottom_mid(lua_State* L) {
     lua_pushinteger(L, LV_ALIGN_BOTTOM_MID);
+    return 1;
+}
+
+int lvgl_align_bottom_right(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_BOTTOM_RIGHT);
     return 1;
 }
 
@@ -317,8 +337,12 @@ static const luaL_Reg lvgl_functions[] = {
     {"font_montserrat_14", lvgl_font_montserrat_14},
     {"ANIM_OFF", lvgl_anim_off},
     {"ALIGN_CENTER", lvgl_align_center},
+    {"ALIGN_TOP_LEFT", lvgl_align_top_left},
     {"ALIGN_TOP_MID", lvgl_align_top_mid},
+    {"ALIGN_TOP_RIGHT", lvgl_align_top_right},
+    {"ALIGN_BOTTOM_LEFT", lvgl_align_bottom_left},
     {"ALIGN_BOTTOM_MID", lvgl_align_bottom_mid},
+    {"ALIGN_BOTTOM_RIGHT", lvgl_align_bottom_right},
     {"ALIGN_OUT_TOP_MID", lvgl_align_out_top_mid},
     {"PART_MAIN", lvgl_part_main},
     

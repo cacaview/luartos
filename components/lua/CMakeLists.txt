@@ -41,7 +41,7 @@ set(LUA_SRCS
 idf_component_register(
     SRCS ${LUA_SRCS}
     INCLUDE_DIRS "." "src"
-    REQUIRES lvgl
+    REQUIRES lvgl sdcard
 )
 
 # Add compiler flags for Lua
