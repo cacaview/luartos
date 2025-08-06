@@ -24,7 +24,7 @@ esp_err_t sdcard_init(void)
             .sclk_io_num = SDCARD_SCK_GPIO,
             .quadwp_io_num = -1,
             .quadhd_io_num = -1,
-            .max_transfer_sz = 4000,
+            .max_transfer_sz = SDCARD_MAX_TRANSFER_SIZE,  // Use defined constant for better maintenance
         };
         
         esp_err_t ret = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cfg, SDSPI_DEFAULT_DMA);
@@ -32,6 +32,8 @@ esp_err_t sdcard_init(void)
             ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
             return ret;
         }
+        
+        ESP_LOGI(TAG, "SD card SPI bus initialized with max_transfer_sz: %d bytes", bus_cfg.max_transfer_sz);
         
         spi_bus_initialized = true;
         ESP_LOGI(TAG, "SD card SPI bus initialized");
@@ -61,7 +63,7 @@ esp_err_t sdcard_mount(const char* mount_point, size_t max_files)
     // Configure SD/MMC host for SPI protocol with conservative settings
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SDCARD_SPI_HOST;
-    host.max_freq_khz = 400;        // Very slow for initial connection
+    host.max_freq_khz = 1000;       // Reduced from 400 to 1MHz for stability
     host.io_voltage = 3.3f;         // Explicitly set voltage
     host.init = &sdspi_host_init;   // Use SPI-specific init
     host.set_bus_width = NULL;      // SPI doesn't support bus width changes
@@ -83,7 +85,7 @@ esp_err_t sdcard_mount(const char* mount_point, size_t max_files)
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = max_files,
-        .allocation_unit_size = 16 * 1024
+        .allocation_unit_size = 0       // Use default allocation unit size for better compatibility
     };
     
     sdmmc_card_t *card;
@@ -178,7 +180,7 @@ esp_err_t sdcard_format(void)
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = true,  // Enable formatting
         .max_files = g_sdcard_config.max_files,
-        .allocation_unit_size = 16 * 1024
+        .allocation_unit_size = 0        // Use default allocation unit size
     };
     
     sdmmc_card_t *card;

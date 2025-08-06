@@ -14,6 +14,7 @@
 
 #include "lvgl.h"
 #include "lvgl_helpers.h"
+#include "lvgl_internal_alloc.h" // Add LVGL internal allocator
 #include "lua_engine.h"     // Add Lua engine support
 #include "main_simple_lua.h" // Add embedded simple Lua script
 
@@ -55,11 +56,12 @@ void app_main() {
 #define LV_VER_RES_MAX 320
 
 // Display buffer configuration for PSRAM
-// Use larger buffers when PSRAM is available
+// Reduce buffer size to work within SPI hardware limits
+// With RGB888 (3 bytes/pixel), we need to be more conservative
 #ifdef CONFIG_SPIRAM
-    #define DISP_BUF_LINES 60  // 60 lines buffer with PSRAM (480 * 60 * 2 = 57.6KB per buffer)
+    #define DISP_BUF_LINES 20  // 20 lines buffer: 480 * 20 * 3 = 28.8KB (safe for chunked transfer)
 #else
-    #define DISP_BUF_LINES 20  // 20 lines buffer for internal RAM fallback
+    #define DISP_BUF_LINES 10  // 10 lines buffer for internal RAM fallback
 #endif
 
 // Display buffers will be allocated dynamically in PSRAM
@@ -193,10 +195,49 @@ static void gui_task(void *pvParameter) {
     ESP_LOGW(TAG, "Touch not enabled");
 #endif
 
-    ESP_LOGI(TAG, "Starting Lua demo application...");
+    ESP_LOGI(TAG, "Starting OOBE Lua application...");
     
-    run_lua_demo();
-    ESP_LOGI(TAG, "Lua demo application completed");
+    // Log memory usage after display setup
+    log_memory_usage("After display setup");
+    
+    // Initialize Lua engine
+    ESP_LOGI(TAG, "Initializing Lua engine...");
+    g_lua_state = lua_engine_init();
+    if (g_lua_state == NULL) {
+        ESP_LOGE(TAG, "Failed to initialize Lua engine");
+        return;
+    }
+    
+    log_memory_usage("After Lua engine init");
+    
+    // Load and run OOBE Lua script
+    ESP_LOGI(TAG, "Loading OOBE Lua script...");
+    
+    // Try to load from file first
+    int lua_result = lua_engine_exec_file(g_lua_state, "/spiffs/oobe_lua.lua");
+    if (lua_result != 0) {
+        ESP_LOGW(TAG, "Failed to load OOBE from file, trying embedded script");
+        
+        // Load embedded OOBE script
+        extern const char oobe_lua_lua_start[] asm("_binary_oobe_lua_lua_start");
+        extern const char oobe_lua_lua_end[] asm("_binary_oobe_lua_lua_end");
+        const size_t oobe_lua_size = oobe_lua_lua_end - oobe_lua_lua_start;
+        
+        ESP_LOGI(TAG, "Embedded OOBE script size: %zu bytes", oobe_lua_size);
+        
+        lua_result = lua_engine_exec_string(g_lua_state, oobe_lua_lua_start);
+        if (lua_result != 0) {
+            ESP_LOGE(TAG, "Failed to load embedded OOBE script, falling back to demo");
+            run_lua_demo();
+        } else {
+            ESP_LOGI(TAG, "Embedded OOBE script loaded successfully");
+        }
+    } else {
+        ESP_LOGI(TAG, "OOBE Lua script loaded from file successfully");
+    }
+    
+    log_memory_usage("After loading Lua script");
+    ESP_LOGI(TAG, "OOBE application initialization completed");
     
     // Log memory usage after initialization
     log_memory_usage("After LVGL initialization");
@@ -356,5 +397,8 @@ void log_memory_usage(const char* stage) {
 #ifdef CONFIG_SPIRAM
     ESP_LOGI(TAG, "[%s] Free PSRAM: %d bytes", stage, heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 #endif
+    
+    // Print LVGL memory statistics
+    lvgl_print_memory_stats();
 }
 

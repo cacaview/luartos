@@ -19,6 +19,7 @@ extern "C" {
 // SD card configuration
 #define SDCARD_MOUNT_POINT "/sdcard"
 #define SDCARD_SPI_HOST SPI3_HOST
+#define SDCARD_MAX_TRANSFER_SIZE 8192   // 8KB max transfer for compatibility
 #define SDCARD_CS_GPIO 9
 #define SDCARD_SCK_GPIO 11  
 #define SDCARD_MOSI_GPIO 42

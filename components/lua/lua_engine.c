@@ -1,6 +1,6 @@
 #include "lua_engine.h"
 #include "lvgl_bindings.h"
-#include "sdcard_lua_bindings.h"
+#include "system_bindings.h"
 #include <string.h>
 
 static const char *TAG = "LUA_ENGINE";
@@ -39,10 +39,13 @@ lua_State* lua_engine_init(void) {
         return NULL;
     }
     
-    // Register SD card bindings
-    ESP_LOGI(TAG, "Registering SD card bindings...");
-    luaL_requiref(L, "sdcard", luaopen_sdcard, 1);
-    lua_pop(L, 1); // Remove the module table from stack
+    // Register system bindings
+    ESP_LOGI(TAG, "Registering system bindings...");
+    if (luaopen_system(L) != 0) {
+        ESP_LOGE(TAG, "Failed to register system bindings");
+        lua_close(L);
+        return NULL;
+    }
     
     // Log final memory usage
     ESP_LOGI(TAG, "Lua engine initialized successfully");
@@ -157,5 +160,11 @@ int lua_engine_call_function(lua_State* L, const char* function_name, int nargs,
 }
 
 void lua_engine_get_memory_stats(lua_State* L, size_t* total_alloc, size_t* psram_alloc, size_t* internal_alloc) {
-    lua_get_memory_stats(L, total_alloc, psram_alloc, internal_alloc);
+    if (L != NULL) {
+        lua_get_memory_stats(L, total_alloc, psram_alloc, internal_alloc);
+    } else {
+        if (total_alloc) *total_alloc = 0;
+        if (psram_alloc) *psram_alloc = 0;
+        if (internal_alloc) *internal_alloc = 0;
+    }
 }

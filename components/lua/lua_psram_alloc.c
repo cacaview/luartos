@@ -18,8 +18,9 @@ typedef struct {
 static lua_memory_stats_t g_lua_memory_stats = {0};
 
 // Memory allocation thresholds
-#define LUA_PSRAM_MIN_SIZE 256      // Minimum size to allocate in PSRAM
-#define LUA_LARGE_ALLOC_SIZE 1024   // Size considered "large"
+#define LUA_PSRAM_MIN_SIZE 64       // Lower threshold for PSRAM allocation
+#define LUA_LARGE_ALLOC_SIZE 512    // Size considered "large"
+#define LUA_FORCE_PSRAM_SIZE 32     // Force PSRAM for almost everything
 
 void* lua_psram_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     (void)ud; // Unused parameter
@@ -52,12 +53,12 @@ void* lua_psram_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
     
     // Handle new allocation or reallocation
     if (ptr == NULL) {
-        // New allocation
+        // New allocation - prioritize PSRAM for Lua interpreter
         g_lua_memory_stats.alloc_count++;
         
 #ifdef CONFIG_SPIRAM
-        // Try PSRAM first for larger allocations
-        if (nsize >= LUA_PSRAM_MIN_SIZE) {
+        // Try PSRAM first for most allocations (except very small ones)
+        if (nsize >= LUA_FORCE_PSRAM_SIZE) {
             new_ptr = heap_caps_malloc(nsize, MALLOC_CAP_SPIRAM);
             if (new_ptr != NULL) {
                 g_lua_memory_stats.psram_allocated += nsize;
@@ -66,7 +67,7 @@ void* lua_psram_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
             }
         }
         
-        // Fall back to internal RAM if PSRAM allocation failed or size is small
+        // Fall back to internal RAM if PSRAM allocation failed or size is very small
         if (new_ptr == NULL) {
 #endif
             new_ptr = heap_caps_malloc(nsize, MALLOC_CAP_INTERNAL);
@@ -136,7 +137,6 @@ void* lua_psram_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
                 // Try to determine if allocation succeeded in PSRAM
                 size_t psram_free_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
                 void* test_ptr = heap_caps_malloc(32, MALLOC_CAP_SPIRAM);
-                size_t psram_free_after = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
                 if (test_ptr) free(test_ptr);
                 // If PSRAM is very low, assume we got internal RAM
                 if (psram_free_before < 1024) {

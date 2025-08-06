@@ -34,6 +34,7 @@ set(LUA_SRCS
     "src/lvm.c"
     "src/lzio.c"
     "lvgl_bindings.c"
+    "system_bindings.c"
     "lua_engine.c"
     "lua_psram_alloc.c"
 )
@@ -41,7 +42,7 @@ set(LUA_SRCS
 idf_component_register(
     SRCS ${LUA_SRCS}
     INCLUDE_DIRS "." "src"
-    REQUIRES lvgl sdcard
+    REQUIRES lvgl sdcard esp_wifi esp_netif esp_event driver fatfs nvs_flash
 )
 
 # Add compiler flags for Lua
