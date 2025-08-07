@@ -1,4 +1,7 @@
 #include "system_bindings.h"
+#include "lua.h"
+#include "lauxlib.h"
+#include "lualib.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
@@ -43,6 +46,19 @@ static bool s_wifi_initialized = false;
 static bool s_sd_mounted = false;
 static bool s_wifi_connecting = false;
 static bool s_spi_bus_initialized = false;
+
+// Globals for async WiFi connection
+static int s_wifi_connect_callback_ref = LUA_NOREF;
+static lua_State* g_main_L = NULL;
+static esp_timer_handle_t s_wifi_check_timer = NULL;
+
+typedef struct {
+    bool success;
+    char msg[128];
+} wifi_connect_result_t;
+
+static volatile bool s_wifi_result_ready = false;
+static wifi_connect_result_t s_wifi_result;
 
 // WiFi event handler
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
@@ -411,67 +427,134 @@ int system_wifi_scan(lua_State* L) {
     return 1; // Return the table
 }
 
+// Task to wait for WiFi connection result without blocking the main thread
+static void wifi_connect_task(void* arg) {
+    ESP_LOGI(TAG, "wifi_connect_task started");
+    // Clear pending bits before waiting
+    xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdFALSE,
+                                           pdFALSE,
+                                           pdMS_TO_TICKS(30000)); // 30-second timeout
+
+    if (bits & WIFI_CONNECTED_BIT) {
+        s_wifi_result.success = true;
+        strncpy(s_wifi_result.msg, "Connected to WiFi", sizeof(s_wifi_result.msg) - 1);
+        ESP_LOGI(TAG, "WiFi connected (task)");
+    } else { // This handles both WIFI_FAIL_BIT and timeout
+        s_wifi_result.success = false;
+        strncpy(s_wifi_result.msg, "Failed to connect to WiFi", sizeof(s_wifi_result.msg) - 1);
+        ESP_LOGW(TAG, "WiFi connection failed or timed out (task)");
+        // Ensure we stop retrying
+        s_wifi_connecting = false;
+    }
+    s_wifi_result.msg[sizeof(s_wifi_result.msg) - 1] = '\0';
+    s_wifi_result_ready = true;
+
+    ESP_LOGI(TAG, "wifi_connect_task finished");
+    vTaskDelete(NULL); // Delete self
+}
+
+// Timer callback to check for the result and invoke Lua callback safely
+static void check_wifi_result_callback(void* arg) {
+    if (s_wifi_result_ready) {
+        // Stop and delete the timer
+        esp_timer_stop(s_wifi_check_timer);
+        esp_timer_delete(s_wifi_check_timer);
+        s_wifi_check_timer = NULL;
+
+        if (g_main_L && s_wifi_connect_callback_ref != LUA_NOREF) {
+            // Create a new coroutine for the callback
+            lua_State* co = lua_newthread(g_main_L);
+
+            // Get the callback function from the registry
+            lua_rawgeti(g_main_L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
+            lua_xmove(g_main_L, co, 1); // Move function to coroutine
+
+            // Push arguments
+            lua_pushboolean(co, s_wifi_result.success);
+            lua_pushstring(co, s_wifi_result.msg);
+
+            // Call the callback
+            int nres;
+            int status = lua_resume(co, g_main_L, 2, &nres);
+            if (status != LUA_OK && status != LUA_YIELD) {
+                const char* error_msg = lua_tostring(co, -1);
+                ESP_LOGE(TAG, "Lua WiFi callback error: %s", error_msg ? error_msg : "Unknown error");
+            }
+
+            // Clean up
+            luaL_unref(g_main_L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
+            s_wifi_connect_callback_ref = LUA_NOREF;
+        }
+        
+        s_wifi_result_ready = false; // Reset flag
+    }
+}
+
+// Asynchronous WiFi connect function
 int system_wifi_connect(lua_State* L) {
     if (!s_wifi_initialized) {
-        lua_pushboolean(L, false);
-        lua_pushstring(L, "WiFi not initialized");
-        return 2;
+        luaL_error(L, "WiFi not initialized");
+        return 0;
     }
     
     const char* ssid = luaL_checkstring(L, 1);
     const char* password = luaL_checkstring(L, 2);
-    
+    luaL_checktype(L, 3, LUA_TFUNCTION);
+
+    // Clean up previous operation if any
+    if (s_wifi_check_timer) {
+        esp_timer_stop(s_wifi_check_timer);
+        esp_timer_delete(s_wifi_check_timer);
+        s_wifi_check_timer = NULL;
+    }
+    if (s_wifi_connect_callback_ref != LUA_NOREF) {
+        luaL_unref(L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
+    }
+
+    // Store the new callback function
+    lua_pushvalue(L, 3);
+    s_wifi_connect_callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
     // Disconnect first if already connecting/connected
     if (s_wifi_connecting) {
         esp_wifi_disconnect();
-        vTaskDelay(pdMS_TO_TICKS(100)); // Wait a bit
-        s_wifi_connecting = false;
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
     
     wifi_config_t wifi_config = {0};
+    strncpy((char*)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
+    strncpy((char*)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
     
-    // Set authentication mode based on password
     if (strlen(password) == 0) {
         wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
     } else {
         wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     }
     
-    strcpy((char*)wifi_config.sta.ssid, ssid);
-    strcpy((char*)wifi_config.sta.password, password);
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     
-    esp_err_t ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set WiFi config: %s", esp_err_to_name(ret));
-        lua_pushboolean(L, false);
-        lua_pushstring(L, esp_err_to_name(ret));
-        return 2;
-    }
-    
-    // Set connecting flag and reset retry counter
     s_wifi_connecting = true;
     s_retry_num = 0;
+    s_wifi_result_ready = false;
     
+    // Create a task to handle the blocking part
+    xTaskCreate(wifi_connect_task, "wifi_connect_task", 4096, NULL, 5, NULL);
+
+    // Create a timer to check for the result
+    esp_timer_create_args_t timer_args = {
+        .callback = &check_wifi_result_callback,
+        .name = "wifi_result_checker"
+    };
+    esp_timer_create(&timer_args, &s_wifi_check_timer);
+    esp_timer_start_periodic(s_wifi_check_timer, 100 * 1000); // Check every 100ms
+
     esp_wifi_connect();
     
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-            pdFALSE,
-            pdFALSE,
-            portMAX_DELAY);
-    
-    if (bits & WIFI_CONNECTED_BIT) {
-        lua_pushboolean(L, true);
-        lua_pushstring(L, "Connected to WiFi");
-    } else if (bits & WIFI_FAIL_BIT) {
-        lua_pushboolean(L, false);
-        lua_pushstring(L, "Failed to connect to WiFi");
-    } else {
-        lua_pushboolean(L, false);
-        lua_pushstring(L, "Unexpected event");
-    }
-    
-    return 2;
+    return 0; // Return immediately
 }
 
 int system_wifi_disconnect(lua_State* L) {
@@ -769,6 +852,8 @@ static const luaL_Reg system_functions[] = {
 
 int luaopen_system(lua_State* L) {
     ESP_LOGI(TAG, "Registering system bindings...");
+
+    g_main_L = L; // Store main Lua state
 
     // Create timer metatable
     luaL_newmetatable(L, LUA_TIMER_METATABLE);

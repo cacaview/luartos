@@ -400,62 +400,77 @@ local function create_wifi_screen()
         end)
     end
 
-    -- Function to handle WiFi selection and password input
+    -- This function creates a dedicated page for password input.
+    function create_password_page(net)
+        -- Create a new screen container
+        local page = lvgl.obj_create(lvgl.scr_act())
+        lvgl.obj_set_size(page, 480, 320)
+        lvgl.obj_clear_flag(page, lvgl.OBJ_FLAG_SCROLLABLE())
+        set_common_container_style(page)
+
+        -- Title
+        local title = lvgl.label_create(page)
+        lvgl.label_set_text(title, "Enter password for: " .. net.ssid)
+        lvgl.obj_align(title, lvgl.ALIGN_TOP_LEFT(), 10, 10)
+
+        -- Password text area
+        local ta = lvgl.textarea_create(page)
+        lvgl.obj_set_size(ta, 460, 40)
+        lvgl.obj_align(ta, lvgl.ALIGN_TOP_MID(), 0, 40)
+        lvgl.textarea_set_one_line(ta, true)
+        lvgl.textarea_set_password_mode(ta, true)
+        oobe.password_input = ta -- Store for later access
+
+        -- Keyboard
+        local kb = lvgl.keyboard_create(lvgl.scr_act())
+        lvgl.obj_set_size(kb, 480, 180)
+        lvgl.keyboard_set_textarea(kb, ta)
+
+        -- Cleanup function
+        local function cleanup_page()
+            if lvgl.obj_is_valid(kb) then lvgl.obj_del(kb) end
+            if lvgl.obj_is_valid(page) then lvgl.obj_del(page) end
+            -- Show the Wi-Fi list again
+            if oobe.ui.wifi.screen then
+                lvgl.obj_clear_flag(oobe.ui.wifi.screen, lvgl.OBJ_FLAG_HIDDEN())
+            end
+        end
+
+        -- Connect button
+        local connect_btn, connect_label = create_button_with_callback(page, "Connect", 370, 90, 100, 40, function()
+            local password = lvgl.textarea_get_text(oobe.password_input)
+            print("[WIFI_PAGE] Attempting to connect to " .. net.ssid .. " with password.")
+            cleanup_page()
+            show_connecting_dialog()
+
+            -- Use the new asynchronous connect function with a callback
+            system.wifi_connect(net.ssid, password, handle_connection_result)
+        end)
+
+        -- Cancel button
+        local cancel_btn, cancel_label = create_button_with_callback(page, "Cancel", 10, 90, 100, 40, function()
+            print("[WIFI_PAGE] Password entry cancelled.")
+            cleanup_page()
+        end)
+    end
+
+    -- This function is called when a Wi-Fi network is selected from the list.
     function handle_wifi_selection(net)
+        print("[WIFI_PAGE] Selected network: " .. net.ssid)
         -- If network is open, connect directly
         if net.authmode == 0 then -- WIFI_AUTH_OPEN
             print("[WIFI_PAGE] Connecting to open network: " .. net.ssid)
             show_connecting_dialog()
-            local success, msg = system.wifi_connect(net.ssid, "")
-            handle_connection_result(success, msg)
+            -- Use the new asynchronous connect function with a callback
+            system.wifi_connect(net.ssid, "", handle_connection_result)
             return
         end
 
-        -- Manually create a password dialog with a virtual keyboard
-        local dialog_bg = lvgl.obj_create(lvgl.scr_act())
-        lvgl.obj_set_size(dialog_bg, 480, 320)
-        lvgl.obj_set_style_bg_opa(dialog_bg, 128, 0)
-        lvgl.obj_set_style_bg_color(dialog_bg, COLORS.BLACK, 0)
-
-        -- Create a keyboard
-        local kb = lvgl.keyboard_create(dialog_bg)
-        lvgl.obj_set_size(kb, 480, 180)
-        lvgl.obj_align(kb, lvgl.ALIGN_BOTTOM_MID(), 0, 0)
-
-        -- Create a text area on a separate container above the keyboard
-        local ta_container = lvgl.obj_create(dialog_bg)
-        lvgl.obj_set_size(ta_container, 320, 80)
-        lvgl.obj_align(ta_container, lvgl.ALIGN_TOP_MID(), 0, 20)
-
-        local title = lvgl.label_create(ta_container)
-        lvgl.label_set_text(title, "Enter Password for " .. net.ssid)
-        lvgl.obj_align(title, lvgl.ALIGN_TOP_MID(), 0, 5)
-
-        local ta = lvgl.textarea_create(ta_container)
-        lvgl.obj_set_width(ta, 280)
-        lvgl.textarea_set_one_line(ta, true)
-        lvgl.textarea_set_password_mode(ta, true)
-        lvgl.obj_align(ta, lvgl.ALIGN_CENTER(), 0, 10)
-        oobe.password_input = ta
-
-        -- Link keyboard to textarea
-        lvgl.keyboard_set_textarea(kb, ta)
-
-        -- Add event handlers to keyboard for OK/Cancel
-        lvgl.obj_add_event_cb(kb, function(event)
-            if lvgl.event_get_code(event) == lvgl.EVENT_READY() then -- OK button
-                local password = lvgl.textarea_get_text(oobe.password_input)
-                print("[WIFI_PAGE] Attempting to connect to " .. net.ssid .. " with password.")
-                lvgl.obj_del(dialog_bg) -- Clean up dialog and keyboard
-                show_connecting_dialog()
-                system.timer_create(100, false, function()
-                    local success, msg = system.wifi_connect(net.ssid, password)
-                    handle_connection_result(success, msg)
-                end)
-            elseif lvgl.event_get_code(event) == lvgl.EVENT_CANCEL() then -- Close button
-                lvgl.obj_del(dialog_bg) -- Clean up dialog and keyboard
-            end
-        end)
+        -- Hide the Wi-Fi list screen and show the password page
+        if oobe.ui.wifi.screen then
+            lvgl.obj_add_flag(oobe.ui.wifi.screen, lvgl.OBJ_FLAG_HIDDEN())
+        end
+        create_password_page(net)
     end
 
     -- Show a "Connecting..." dialog
@@ -467,8 +482,8 @@ local function create_wifi_screen()
     -- Handle the result of a connection attempt
     function handle_connection_result(success, msg)
         -- Close "Connecting..." dialog if it exists
-        if oobe.ui.wifi.connecting_mbox then
-            lvgl.msgbox_close(oobe.ui.wifi.connecting_mbox)
+        if oobe.ui.wifi.connecting_mbox and lvgl.obj_is_valid(oobe.ui.wifi.connecting_mbox) then
+            lvgl.obj_del(oobe.ui.wifi.connecting_mbox)
             oobe.ui.wifi.connecting_mbox = nil
         end
 
@@ -477,12 +492,33 @@ local function create_wifi_screen()
             oobe.wifi_connected = true
             -- Manually "enable" by changing color
             lvgl.obj_set_style_bg_color(oobe.ui.wifi.next_btn, COLORS.BLUE, lvgl.PART_MAIN(), lvgl.STATE_DEFAULT())
-            lvgl.msgbox_create(screen, "Success", "Wi-Fi connected!", {"OK"}, false)
+            
+            -- Show success message and proceed
+            local mbox = lvgl.msgbox_create(lvgl.scr_act(), "Success", "Wi-Fi connected!", {"OK"}, false)
+            lvgl.obj_center(mbox)
+            lvgl.obj_add_event_cb(mbox, function(e)
+                if lvgl.event_get_code(e) == lvgl.EVENT_VALUE_CHANGED() then
+                    lvgl.obj_del(mbox)
+                    switch_to_screen(3) -- Proceed to install screen
+                end
+            end)
         else
             oobe.wifi_connected = false
             -- Manually "disable" by changing color
             lvgl.obj_set_style_bg_color(oobe.ui.wifi.next_btn, COLORS.GRAY, lvgl.PART_MAIN(), lvgl.STATE_DEFAULT())
-            lvgl.msgbox_create(screen, "Failed", "Could not connect to Wi-Fi network.\nPlease check the password and try again.", {"OK"}, false)
+
+            -- Show error message and return to wifi list
+            local mbox = lvgl.msgbox_create(lvgl.scr_act(), "Failed", "Could not connect.\nPlease check password and try again.", {"OK"}, false)
+            lvgl.obj_center(mbox)
+            lvgl.obj_add_event_cb(mbox, function(e)
+                if lvgl.event_get_code(e) == lvgl.EVENT_VALUE_CHANGED() then
+                    lvgl.obj_del(mbox)
+                    -- Show the Wi-Fi list again so the user can retry
+                    if oobe.ui.wifi.screen and lvgl.obj_is_valid(oobe.ui.wifi.screen) then
+                        lvgl.obj_clear_flag(oobe.ui.wifi.screen, lvgl.OBJ_FLAG_HIDDEN())
+                    end
+                end
+            end)
         end
     end
 

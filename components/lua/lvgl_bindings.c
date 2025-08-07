@@ -288,10 +288,39 @@ int lvgl_msgbox_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     const char* title = luaL_checkstring(L, 2);
     const char* txt = luaL_checkstring(L, 3);
-    const char* btn_txts[] = {luaL_checkstring(L, 4), NULL};
     bool add_close_btn = lua_toboolean(L, 5);
-    
+
+    const char** btn_txts = NULL;
+    int n_btns = 0;
+
+    // Check if the 4th argument is a table
+    if (lua_istable(L, 4)) {
+        n_btns = luaL_len(L, 4);
+        if (n_btns > 0) {
+            // Allocate memory for the button text pointer array (+1 for NULL terminator)
+            btn_txts = (const char**)malloc(sizeof(const char*) * (n_btns + 1));
+            if (!btn_txts) {
+                return luaL_error(L, "Failed to allocate memory for button texts");
+            }
+
+            for (int i = 0; i < n_btns; i++) {
+                lua_rawgeti(L, 4, i + 1); // Lua tables are 1-based
+                btn_txts[i] = luaL_checkstring(L, -1);
+                lua_pop(L, 1);
+            }
+            btn_txts[n_btns] = NULL; // NULL-terminate the array
+        }
+    }
+    // If the 4th argument is not a table (e.g., nil), btn_txts will remain NULL,
+    // which is what lv_msgbox_create expects for no buttons.
+
     lv_obj_t* msgbox = lv_msgbox_create(parent, title, txt, btn_txts, add_close_btn);
+
+    // Free the allocated memory for the button texts array
+    if (btn_txts) {
+        free(btn_txts);
+    }
+
     push_lvgl_obj(L, msgbox);
     return 1;
 }
@@ -715,9 +744,29 @@ int lvgl_event_cancel(lua_State* L) {
     return 1;
 }
 
+int lvgl_event_focused(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_FOCUSED);
+    return 1;
+}
+
+int lvgl_event_defocused(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_DEFOCUSED);
+    return 1;
+}
+
 // Object flag constants
 int lvgl_obj_flag_hidden(lua_State* L) {
     lua_pushinteger(L, LV_OBJ_FLAG_HIDDEN);
+    return 1;
+}
+
+int lvgl_obj_flag_scrollable(lua_State* L) {
+    lua_pushinteger(L, LV_OBJ_FLAG_SCROLLABLE);
+    return 1;
+}
+
+int lvgl_obj_flag_clickable(lua_State* L) {
+    lua_pushinteger(L, LV_OBJ_FLAG_CLICKABLE);
     return 1;
 }
 
@@ -765,6 +814,14 @@ int lvgl_event_get_target(lua_State* L) {
     return 1;
 }
 
+int lvgl_event_send(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_event_code_t code = luaL_checkinteger(L, 2);
+    void* user_data = lua_isnoneornil(L, 3) ? NULL : lua_touserdata(L, 3);
+    lv_event_send(obj, code, user_data);
+    return 0;
+}
+
 // Object state checking
 int lvgl_obj_has_state(lua_State* L) {
     lv_obj_t* obj = check_lvgl_obj(L, 1);
@@ -789,6 +846,44 @@ int lvgl_obj_clear_flag(lua_State* L) {
     return 0;
 }
 
+int lvgl_obj_is_valid(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    bool is_valid = lv_obj_is_valid(obj);
+    lua_pushboolean(L, is_valid);
+    return 1;
+}
+
+int lvgl_obj_del(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_del(obj);
+    return 0;
+}
+
+// Functions to get object properties
+int lvgl_obj_get_x(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lua_pushinteger(L, lv_obj_get_x(obj));
+    return 1;
+}
+
+int lvgl_obj_get_y(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lua_pushinteger(L, lv_obj_get_y(obj));
+    return 1;
+}
+
+int lvgl_obj_get_width(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lua_pushinteger(L, lv_obj_get_width(obj));
+    return 1;
+}
+
+int lvgl_obj_get_height(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lua_pushinteger(L, lv_obj_get_height(obj));
+    return 1;
+}
+
 // Widget functions for missing entries
 int lvgl_textarea_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
@@ -809,6 +904,20 @@ int lvgl_textarea_get_text(lua_State* L) {
     const char* text = lv_textarea_get_text(textarea);
     lua_pushstring(L, text);
     return 1;
+}
+
+int lvgl_textarea_set_one_line(lua_State* L) {
+    lv_obj_t* ta = check_lvgl_obj(L, 1);
+    bool en = lua_toboolean(L, 2);
+    lv_textarea_set_one_line(ta, en);
+    return 0;
+}
+
+int lvgl_textarea_set_password_mode(lua_State* L) {
+    lv_obj_t* ta = check_lvgl_obj(L, 1);
+    bool en = lua_toboolean(L, 2);
+    lv_textarea_set_password_mode(ta, en);
+    return 0;
 }
 
 int lvgl_keyboard_create(lua_State* L) {
@@ -1001,15 +1110,24 @@ static const luaL_Reg lvgl_functions[] = {
     {"textarea_create", lvgl_textarea_create},
     {"textarea_set_text", lvgl_textarea_set_text},
     {"textarea_get_text", lvgl_textarea_get_text},
+    {"textarea_set_one_line", lvgl_textarea_set_one_line},
+    {"textarea_set_password_mode", lvgl_textarea_set_password_mode},
     {"keyboard_create", lvgl_keyboard_create},
     {"keyboard_set_textarea", lvgl_keyboard_set_textarea},
     {"obj_add_flag", lvgl_obj_add_flag},
     {"obj_clear_flag", lvgl_obj_clear_flag},
     {"obj_has_state", lvgl_obj_has_state},
+    {"obj_is_valid", lvgl_obj_is_valid},
+    {"obj_del", lvgl_obj_del},
+    {"obj_get_x", lvgl_obj_get_x},
+    {"obj_get_y", lvgl_obj_get_y},
+    {"obj_get_width", lvgl_obj_get_width},
+    {"obj_get_height", lvgl_obj_get_height},
     
     // Event functions
     {"event_get_code", lvgl_event_get_code},
     {"event_get_target", lvgl_event_get_target},
+    {"event_send", lvgl_event_send},
     
     // Utility functions
     {"color_hex", lvgl_color_hex},
@@ -1052,7 +1170,11 @@ static const luaL_Reg lvgl_functions[] = {
     {"EVENT_VALUE_CHANGED", lvgl_event_value_changed},
     {"EVENT_READY", lvgl_event_ready},
     {"EVENT_CANCEL", lvgl_event_cancel},
+    {"EVENT_FOCUSED", lvgl_event_focused},
+    {"EVENT_DEFOCUSED", lvgl_event_defocused},
     {"OBJ_FLAG_HIDDEN", lvgl_obj_flag_hidden},
+    {"OBJ_FLAG_SCROLLABLE", lvgl_obj_flag_scrollable},
+    {"OBJ_FLAG_CLICKABLE", lvgl_obj_flag_clickable},
     {"SYMBOL_WIFI", lvgl_symbol_wifi},
     {"SYMBOL_OK", lvgl_symbol_ok},
     {"SYMBOL_CLOSE", lvgl_symbol_close},
