@@ -501,31 +501,66 @@ int lvgl_label_set_long_mode(lua_State* L) {
     return 0;
 }
 
-// Event handling
-static lua_State* g_event_lua_state = NULL;
-static int g_event_callback_ref = LUA_NOREF;
+// Event handling - Fixed: Per-object callback storage
+typedef struct {
+    lua_State* L;
+    int callback_ref;
+} lua_event_data_t;
 
 static void lua_event_callback(lv_event_t* e) {
-    if (g_event_lua_state && g_event_callback_ref != LUA_NOREF) {
-        lua_rawgeti(g_event_lua_state, LUA_REGISTRYINDEX, g_event_callback_ref);
-        if (lua_isfunction(g_event_lua_state, -1)) {
-            lua_pushlightuserdata(g_event_lua_state, e);
-            lua_call(g_event_lua_state, 1, 0);
+    lua_event_data_t* event_data = (lua_event_data_t*)lv_event_get_user_data(e);
+    if (!event_data || !event_data->L || event_data->callback_ref == LUA_NOREF) {
+        return;
+    }
+
+    lua_State* L = event_data->L;
+    lv_event_code_t code = lv_event_get_code(e);
+
+    // Handle regular event callbacks
+    if (code != LV_EVENT_DELETE) {
+        lua_rawgeti(L, LUA_REGISTRYINDEX, event_data->callback_ref);
+        if (lua_isfunction(L, -1)) {
+            lua_pushlightuserdata(L, e);
+            if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+                const char* error_msg = lua_tostring(L, -1);
+                ESP_LOGE("LVGL_EVENT", "Lua callback error: %s", error_msg ? error_msg : "unknown error");
+                lua_pop(L, 1);
+            }
         } else {
-            lua_pop(g_event_lua_state, 1);
+            lua_pop(L, 1);
         }
+    }
+    // Handle the DELETE event to clean up resources
+    else {
+        ESP_LOGD("LVGL_BINDINGS", "Cleaning up event data for object %p", lv_event_get_target(e));
+        // Unreference the Lua callback function
+        luaL_unref(L, LUA_REGISTRYINDEX, event_data->callback_ref);
+        // Free the container
+        free(event_data);
     }
 }
 
 int lvgl_obj_add_event_cb(lua_State* L) {
     lv_obj_t* obj = check_lvgl_obj(L, 1);
-    
-    if (lua_isfunction(L, 2)) {
-        g_event_lua_state = L;
-        g_event_callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-        lv_obj_add_event_cb(obj, lua_event_callback, LV_EVENT_ALL, NULL);
+    if (!lua_isfunction(L, 2)) {
+        return luaL_argerror(L, 2, "expected a function");
     }
-    
+
+    // Allocate a container for the Lua state and callback reference
+    lua_event_data_t* event_data = (lua_event_data_t*)malloc(sizeof(lua_event_data_t));
+    if (!event_data) {
+        return luaL_error(L, "Failed to allocate memory for event data");
+    }
+
+    // Store the Lua state and create a reference to the callback function
+    event_data->L = L;
+    lua_pushvalue(L, 2); // Duplicate function on stack for luaL_ref
+    event_data->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+    // Add the event callback to the object
+    // The lua_event_callback will be called for ALL events, including DELETE
+    lv_obj_add_event_cb(obj, lua_event_callback, LV_EVENT_ALL, event_data);
+
     return 0;
 }
 
@@ -659,6 +694,159 @@ int lvgl_scr_load_anim_none(lua_State* L) {
     return 1;
 }
 
+// Event constants
+int lvgl_event_clicked(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_CLICKED);
+    return 1;
+}
+
+int lvgl_event_value_changed(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_VALUE_CHANGED);
+    return 1;
+}
+
+int lvgl_event_ready(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_READY);
+    return 1;
+}
+
+int lvgl_event_cancel(lua_State* L) {
+    lua_pushinteger(L, LV_EVENT_CANCEL);
+    return 1;
+}
+
+// Object flag constants
+int lvgl_obj_flag_hidden(lua_State* L) {
+    lua_pushinteger(L, LV_OBJ_FLAG_HIDDEN);
+    return 1;
+}
+
+// Symbol constants
+int lvgl_symbol_wifi(lua_State* L) {
+    lua_pushstring(L, LV_SYMBOL_WIFI);
+    return 1;
+}
+
+int lvgl_symbol_ok(lua_State* L) {
+    lua_pushstring(L, LV_SYMBOL_OK);
+    return 1;
+}
+
+int lvgl_symbol_close(lua_State* L) {
+    lua_pushstring(L, LV_SYMBOL_CLOSE);
+    return 1;
+}
+
+// Font constants
+int lvgl_font_montserrat_12(lua_State* L) {
+    // Fallback to montserrat_14 since montserrat_12 is not enabled
+    lua_pushlightuserdata(L, (void*)&lv_font_montserrat_14);
+    return 1;
+}
+
+int lvgl_font_montserrat_20(lua_State* L) {
+    // Fallback to montserrat_16 since montserrat_20 is not enabled
+    lua_pushlightuserdata(L, (void*)&lv_font_montserrat_16);
+    return 1;
+}
+
+// Event handling helper
+int lvgl_event_get_code(lua_State* L) {
+    lv_event_t* event = (lv_event_t*)lua_touserdata(L, 1);
+    lv_event_code_t code = lv_event_get_code(event);
+    lua_pushinteger(L, code);
+    return 1;
+}
+
+int lvgl_event_get_target(lua_State* L) {
+    lv_event_t* event = (lv_event_t*)lua_touserdata(L, 1);
+    lv_obj_t* target = lv_event_get_target(event);
+    push_lvgl_obj(L, target);
+    return 1;
+}
+
+// Object state checking
+int lvgl_obj_has_state(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_state_t state = luaL_checkinteger(L, 2);
+    bool has_state = lv_obj_has_state(obj, state);
+    lua_pushboolean(L, has_state);
+    return 1;
+}
+
+// Object flag functions
+int lvgl_obj_add_flag(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_flag_t flag = luaL_checkinteger(L, 2);
+    lv_obj_add_flag(obj, flag);
+    return 0;
+}
+
+int lvgl_obj_clear_flag(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_flag_t flag = luaL_checkinteger(L, 2);
+    lv_obj_clear_flag(obj, flag);
+    return 0;
+}
+
+// Widget functions for missing entries
+int lvgl_textarea_create(lua_State* L) {
+    lv_obj_t* parent = check_lvgl_obj(L, 1);
+    lv_obj_t* textarea = lv_textarea_create(parent);
+    push_lvgl_obj(L, textarea);
+    return 1;
+}
+
+int lvgl_textarea_set_text(lua_State* L) {
+    lv_obj_t* textarea = check_lvgl_obj(L, 1);
+    const char* text = luaL_checkstring(L, 2);
+    lv_textarea_set_text(textarea, text);
+    return 0;
+}
+
+int lvgl_textarea_get_text(lua_State* L) {
+    lv_obj_t* textarea = check_lvgl_obj(L, 1);
+    const char* text = lv_textarea_get_text(textarea);
+    lua_pushstring(L, text);
+    return 1;
+}
+
+int lvgl_keyboard_create(lua_State* L) {
+    lv_obj_t* parent = check_lvgl_obj(L, 1);
+    lv_obj_t* keyboard = lv_keyboard_create(parent);
+    push_lvgl_obj(L, keyboard);
+    return 1;
+}
+
+int lvgl_keyboard_set_textarea(lua_State* L) {
+    lv_obj_t* kb = check_lvgl_obj(L, 1);
+    lv_obj_t* ta = check_lvgl_obj(L, 2);
+    lv_keyboard_set_textarea(kb, ta);
+    return 0;
+}
+
+// Msgbox helper functions
+int lvgl_msgbox_get_btns(lua_State* L) {
+    lv_obj_t* msgbox = check_lvgl_obj(L, 1);
+    lv_obj_t* btns = lv_msgbox_get_btns(msgbox);
+    push_lvgl_obj(L, btns);
+    return 1;
+}
+
+int lvgl_msgbox_get_title(lua_State* L) {
+    lv_obj_t* msgbox = check_lvgl_obj(L, 1);
+    lv_obj_t* title = lv_msgbox_get_title(msgbox);
+    push_lvgl_obj(L, title);
+    return 1;
+}
+
+int lvgl_msgbox_get_text(lua_State* L) {
+    lv_obj_t* msgbox = check_lvgl_obj(L, 1);
+    lv_obj_t* text = lv_msgbox_get_text(msgbox);
+    push_lvgl_obj(L, text);
+    return 1;
+}
+
 // Font constants
 int lvgl_font_montserrat_14(lua_State* L) {
     lua_pushlightuserdata(L, (void*)&lv_font_montserrat_14);
@@ -666,12 +854,6 @@ int lvgl_font_montserrat_14(lua_State* L) {
 }
 
 int lvgl_font_montserrat_16(lua_State* L) {
-    lua_pushlightuserdata(L, (void*)&lv_font_montserrat_16);
-    return 1;
-}
-
-int lvgl_font_montserrat_20(lua_State* L) {
-    // Fallback to montserrat_16 since montserrat_20 is not enabled
     lua_pushlightuserdata(L, (void*)&lv_font_montserrat_16);
     return 1;
 }
@@ -690,6 +872,16 @@ int lvgl_anim_on(lua_State* L) {
 // Alignment constants
 int lvgl_align_center(lua_State* L) {
     lua_pushinteger(L, LV_ALIGN_CENTER);
+    return 1;
+}
+
+int lvgl_align_left_mid(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_LEFT_MID);
+    return 1;
+}
+
+int lvgl_align_right_mid(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_RIGHT_MID);
     return 1;
 }
 
@@ -800,9 +992,24 @@ static const luaL_Reg lvgl_functions[] = {
     {"spangroup_set_mode", lvgl_spangroup_set_mode},
     {"spangroup_refr_mode", lvgl_spangroup_refr_mode},
     {"msgbox_create", lvgl_msgbox_create},
+    {"msgbox_get_btns", lvgl_msgbox_get_btns},
+    {"msgbox_get_title", lvgl_msgbox_get_title},
+    {"msgbox_get_text", lvgl_msgbox_get_text},
     {"list_create", lvgl_list_create},
     {"list_add_text", lvgl_list_add_text},
     {"list_add_btn", lvgl_list_add_btn},
+    {"textarea_create", lvgl_textarea_create},
+    {"textarea_set_text", lvgl_textarea_set_text},
+    {"textarea_get_text", lvgl_textarea_get_text},
+    {"keyboard_create", lvgl_keyboard_create},
+    {"keyboard_set_textarea", lvgl_keyboard_set_textarea},
+    {"obj_add_flag", lvgl_obj_add_flag},
+    {"obj_clear_flag", lvgl_obj_clear_flag},
+    {"obj_has_state", lvgl_obj_has_state},
+    
+    // Event functions
+    {"event_get_code", lvgl_event_get_code},
+    {"event_get_target", lvgl_event_get_target},
     
     // Utility functions
     {"color_hex", lvgl_color_hex},
@@ -815,59 +1022,50 @@ static const luaL_Reg lvgl_functions[] = {
     {"font_montserrat_14", lvgl_font_montserrat_14},
     {"font_montserrat_16", lvgl_font_montserrat_16},
     {"font_montserrat_20", lvgl_font_montserrat_20},
+    {"font_montserrat_12", lvgl_font_montserrat_12},
     
-    // Animation constants
-    {"ANIM_OFF", lvgl_anim_off},
-    {"ANIM_ON", lvgl_anim_on},
-    
-    // Alignment constants
-    {"ALIGN_CENTER", lvgl_align_center},
-    {"ALIGN_TOP_LEFT", lvgl_align_top_left},
-    {"ALIGN_TOP_MID", lvgl_align_top_mid},
-    {"ALIGN_TOP_RIGHT", lvgl_align_top_right},
-    {"ALIGN_BOTTOM_LEFT", lvgl_align_bottom_left},
-    {"ALIGN_BOTTOM_MID", lvgl_align_bottom_mid},
-    {"ALIGN_BOTTOM_RIGHT", lvgl_align_bottom_right},
-    {"ALIGN_OUT_TOP_MID", lvgl_align_out_top_mid},
-    
-    // Part constants
+    // Constants functions
     {"PART_MAIN", lvgl_part_main},
     {"PART_INDICATOR", lvgl_part_indicator},
     {"PART_KNOB", lvgl_part_knob},
-    
-    // State constants
     {"STATE_DEFAULT", lvgl_state_default},
     {"STATE_CHECKED", lvgl_state_checked},
-    
-    // Border constants
-    {"BORDER_SIDE_FULL", lvgl_border_side_full},
-    
-    // Text alignment constants
+    {"ALIGN_CENTER", lvgl_align_center},
+    {"ALIGN_TOP_MID", lvgl_align_top_mid},
+    {"ALIGN_LEFT_MID", lvgl_align_left_mid},
+    {"ALIGN_RIGHT_MID", lvgl_align_right_mid},
+    {"ALIGN_BOTTOM_MID", lvgl_align_bottom_mid},
     {"TEXT_ALIGN_LEFT", lvgl_text_align_left},
     {"TEXT_ALIGN_CENTER", lvgl_text_align_center},
     {"TEXT_ALIGN_RIGHT", lvgl_text_align_right},
-    
-    // Scrollbar mode constants
-    {"SCROLLBAR_MODE_OFF", lvgl_scrollbar_mode_off},
-    
-    // Label mode constants
-    {"LABEL_LONG_WRAP", lvgl_label_long_wrap},
-    
-    // Span constants
-    {"SPAN_OVERFLOW_CLIP", lvgl_span_overflow_clip},
     {"SPAN_MODE_BREAK", lvgl_span_mode_break},
-    
-    // Bar mode constants
-    {"BAR_MODE_NORMAL", lvgl_bar_mode_normal},
-    
-    // Grad dir constants
-    {"GRAD_DIR_NONE", lvgl_grad_dir_none},
-    
-    // Text decoration constants
+    {"SPAN_OVERFLOW_CLIP", lvgl_span_overflow_clip},
     {"TEXT_DECOR_NONE", lvgl_text_decor_none},
-    
-    // Screen load animation constants
+    {"BORDER_SIDE_FULL", lvgl_border_side_full},
+    {"GRAD_DIR_NONE", lvgl_grad_dir_none},
+    {"SCROLLBAR_MODE_OFF", lvgl_scrollbar_mode_off},
+    {"LABEL_LONG_WRAP", lvgl_label_long_wrap},
+    {"BAR_MODE_NORMAL", lvgl_bar_mode_normal},
+    {"ANIM_OFF", lvgl_anim_off},
     {"SCR_LOAD_ANIM_NONE", lvgl_scr_load_anim_none},
+    {"EVENT_CLICKED", lvgl_event_clicked},
+    {"EVENT_VALUE_CHANGED", lvgl_event_value_changed},
+    {"EVENT_READY", lvgl_event_ready},
+    {"EVENT_CANCEL", lvgl_event_cancel},
+    {"OBJ_FLAG_HIDDEN", lvgl_obj_flag_hidden},
+    {"SYMBOL_WIFI", lvgl_symbol_wifi},
+    {"SYMBOL_OK", lvgl_symbol_ok},
+    {"SYMBOL_CLOSE", lvgl_symbol_close},
+    
+    // Additional alignment constants
+    {"ALIGN_TOP_LEFT", lvgl_align_top_left},
+    {"ALIGN_TOP_RIGHT", lvgl_align_top_right},
+    {"ALIGN_BOTTOM_LEFT", lvgl_align_bottom_left},
+    {"ALIGN_BOTTOM_RIGHT", lvgl_align_bottom_right},
+    {"ALIGN_OUT_TOP_MID", lvgl_align_out_top_mid},
+    
+    // Animation constants
+    {"ANIM_ON", lvgl_anim_on},
     
     {NULL, NULL}
 };

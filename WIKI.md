@@ -171,37 +171,86 @@ local psram_size = system.get_psram_size()      -- 获取PSRAM总大小(字节)
 -- 系统控制
 system.restart()                               -- 重启系统
 system.delay(milliseconds)                     -- 延时(毫秒)
+system.sleep(milliseconds)                     -- 睡眠(毫秒), 与delay功能相同
 
 -- 示例：内存监控
 print("空闲内存:", system.get_free_heap(), "字节")
 print("PSRAM大小:", system.get_psram_size(), "字节")
 ```
 
-#### SD卡操作
+#### SD卡操作 (sdcard 模块)
 
 ```lua
--- SD卡初始化和挂载
-local success, message = system.sd_init()
-if success then
-    print("SD卡初始化成功")
-else
-    print("SD卡初始化失败:", message)
+-- 引入sdcard模块
+local sdcard = require("sdcard")
+
+-- 初始化
+local ok, err = sdcard.init()
+if not ok then
+    print("SD卡初始化失败:", err)
+    return
+end
+
+-- 挂载文件系统
+-- sdcard.mount([mount_point], [max_files])
+local ok, err = sdcard.mount()
+if not ok then
+    print("SD卡挂载失败:", err)
+    return
 end
 
 -- 检查挂载状态
-local mounted = system.sd_is_mounted()
+if sdcard.is_mounted() then
+    print("SD卡已挂载")
+end
 
--- 文件操作
-local success, message = system.sd_write_file("test.txt", "Hello World")
-local content, error = system.sd_read_file("test.txt")
+-- 写文件
+-- sdcard.write_file(filename, data) -> ok, bytes_written | false, error
+local ok, bytes_written = sdcard.write_file("test.txt", "Hello from LuaRTOS!")
+if ok then
+    print("成功写入", bytes_written, "字节")
+end
+
+-- 读文件
+-- sdcard.read_file(filename) -> content | nil, error
+local content, err = sdcard.read_file("test.txt")
+if content then
+    print("读取内容:", content)
+end
+
+-- 列出文件
+-- sdcard.list_files([path]) -> { {name="...", size=...}, ... } | nil, error
+local files, err = sdcard.list_files("/")
+if files then
+    for _, file in ipairs(files) do
+        print(string.format("- %s (%d bytes)", file.name, file.size))
+    end
+end
+
+-- 获取使用情况
+-- sdcard.get_usage() -> { total=..., used=..., free=... } | nil, error
+local usage, err = sdcard.get_usage()
+if usage then
+    print(string.format("总空间: %.2f MB, 已用: %.2f MB, 可用: %.2f MB",
+          usage.total / 1024 / 1024,
+          usage.used / 1024 / 1024,
+          usage.free / 1024 / 1024))
+end
 
 -- 获取SD卡信息
-local info, error = system.sd_get_info()
+-- sdcard.get_info() -> { name="...", type="...", ... } | nil, error
+local info, err = sdcard.get_info()
 if info then
-    print("总容量:", info.total_bytes, "字节")
-    print("可用空间:", info.free_bytes, "字节")
-    print("已用空间:", info.used_bytes, "字节")
+    print("卡名称:", info.name)
+    print("卡类型:", info.type)
+    print("容量:", info.capacity_mb, "MB")
 end
+
+-- 删除文件
+local ok, err = sdcard.delete_file("test.txt")
+
+-- 卸载
+sdcard.unmount()
 ```
 
 #### WiFi操作
@@ -231,6 +280,11 @@ system.wifi_disconnect()
 
 -- 检查连接状态
 local connected = system.wifi_is_connected()
+
+-- 获取WiFi状态
+-- 返回 "not_initialized", "connected", "connecting", "disconnected"
+local status = system.wifi_get_status()
+print("WiFi 状态:", status)
 ```
 
 #### 定时器
@@ -382,7 +436,7 @@ local slider = lvgl.slider_create(parent)
 lvgl.obj_set_size(slider, 200, 20)
 
 -- 设置范围和值
-lvgl.slider_set_range(slider, 0, 100)
+-- lvgl.slider_set_range(slider, 0, 100) -- 注意: 此函数在当前绑定中未实现
 lvgl.slider_set_value(slider, 50, lvgl.ANIM_OFF())
 
 -- 滑块样式
@@ -418,6 +472,43 @@ lvgl.obj_set_style_bg_color(bar, 0xEEEEEE, lvgl.PART_MAIN())
 lvgl.obj_set_style_bg_color(bar, 0x00AA00, lvgl.PART_INDICATOR())
 ```
 
+#### 文本区域（Text Area）
+
+```lua
+-- 创建文本区域
+local ta = lvgl.textarea_create(parent)
+lvgl.obj_set_size(ta, 200, 80)
+lvgl.textarea_set_text(ta, "Initial text")
+
+-- 获取文本
+local text = lvgl.textarea_get_text(ta)
+print("Textarea content:", text)
+```
+
+#### 键盘（Keyboard）
+
+```lua
+-- 创建键盘
+local kb = lvgl.keyboard_create(parent)
+
+-- 通常与文本区域关联
+-- lvgl.keyboard_set_textarea(kb, ta) -- 此绑定当前缺失，需要添加
+```
+
+#### 消息框（Msgbox）
+
+```lua
+-- 创建消息框
+local mbox = lvgl.msgbox_create(
+    parent,
+    "提示",
+    "这是一个消息框。",
+    "确定", -- 按钮文本
+    true -- 添加关闭按钮
+)
+lvgl.obj_center(mbox)
+```
+
 #### 跨度组（Spangroup）- 富文本
 
 ```lua
@@ -450,6 +541,34 @@ local text_item = lvgl.list_add_text(list, "分组标题")
 
 -- 添加按钮项
 local btn_item = lvgl.list_add_btn(list, nil, "列表项目1")
+```
+
+### 事件处理
+
+```lua
+-- 为对象添加事件回调
+lvgl.obj_add_event_cb(btn, function(event)
+    local code = lvgl.event_get_code(event)
+    local target = lvgl.event_get_target(event)
+
+    if code == lvgl.EVENT_CLICKED() then
+        print("按钮被点击了!")
+        -- 切换标签文本
+        -- 假设btn_label在作用域内
+        -- if lvgl.label_get_text(btn_label) == "点击我" then
+        --     lvgl.label_set_text(btn_label, "已点击")
+        -- else
+        --     lvgl.label_set_text(btn_label, "点击我")
+        -- end
+    end
+end)
+
+-- 检查对象状态
+local is_checked = lvgl.obj_has_state(switch, lvgl.STATE_CHECKED())
+
+-- 添加/移除对象标志
+lvgl.obj_add_flag(obj, lvgl.OBJ_FLAG_HIDDEN())    -- 隐藏对象
+lvgl.obj_clear_flag(obj, lvgl.OBJ_FLAG_HIDDEN()) -- 显示对象
 ```
 
 ### 颜色和常量

@@ -52,9 +52,23 @@ int lvgl_spangroup_set_overflow(lua_State* L);
 int lvgl_spangroup_set_mode(lua_State* L);
 int lvgl_spangroup_refr_mode(lua_State* L);
 int lvgl_msgbox_create(lua_State* L);
+int lvgl_msgbox_get_btns(lua_State* L);
+int lvgl_msgbox_get_title(lua_State* L);
+int lvgl_msgbox_get_text(lua_State* L);
 int lvgl_list_create(lua_State* L);
 int lvgl_list_add_text(lua_State* L);
 int lvgl_list_add_btn(lua_State* L);
+int lvgl_textarea_create(lua_State* L);
+int lvgl_textarea_set_text(lua_State* L);
+int lvgl_textarea_get_text(lua_State* L);
+int lvgl_keyboard_create(lua_State* L);
+int lvgl_textarea_set_accepted_chars(lua_State* L);
+int lvgl_obj_add_flag(lua_State* L);
+int lvgl_obj_clear_flag(lua_State* L);
+int lvgl_anim_set_time(lua_State* L);
+int lvgl_anim_set_values(lua_State* L);
+int lvgl_anim_set_exec_cb(lua_State* L);
+int lvgl_anim_start(lua_State* L);
 
 // Style functions
 int lvgl_obj_set_style_bg_opa(lua_State* L);
@@ -95,9 +109,40 @@ int lvgl_color_black(lua_State* L);
 int lvgl_refr_now(lua_State* L);
 int lvgl_scr_load_anim(lua_State* L);
 
+// Constants functions
+int lvgl_PART_MAIN(lua_State* L);
+int lvgl_STATE_DEFAULT(lua_State* L);
+int lvgl_STATE_CHECKED(lua_State* L);
+int lvgl_ALIGN_CENTER(lua_State* L);
+int lvgl_ALIGN_TOP_MID(lua_State* L);
+int lvgl_ALIGN_LEFT_MID(lua_State* L);
+int lvgl_ALIGN_RIGHT_MID(lua_State* L);
+int lvgl_ALIGN_BOTTOM_MID(lua_State* L);
+int lvgl_TEXT_ALIGN_LEFT(lua_State* L);
+int lvgl_TEXT_ALIGN_CENTER(lua_State* L);
+int lvgl_TEXT_ALIGN_RIGHT(lua_State* L);
+int lvgl_SPAN_MODE_BREAK(lua_State* L);
+int lvgl_SPAN_OVERFLOW_CLIP(lua_State* L);
+int lvgl_TEXT_DECOR_NONE(lua_State* L);
+int lvgl_BORDER_SIDE_FULL(lua_State* L);
+int lvgl_GRAD_DIR_NONE(lua_State* L);
+int lvgl_SCROLLBAR_MODE_OFF(lua_State* L);
+int lvgl_LABEL_LONG_WRAP(lua_State* L);
+int lvgl_BAR_MODE_NORMAL(lua_State* L);
+int lvgl_ANIM_OFF(lua_State* L);
+int lvgl_SCR_LOAD_ANIM_NONE(lua_State* L);
+int lvgl_EVENT_CLICKED(lua_State* L);
+int lvgl_EVENT_VALUE_CHANGED(lua_State* L);
+int lvgl_OBJ_FLAG_HIDDEN(lua_State* L);
+int lvgl_SYMBOL_WIFI(lua_State* L);
+int lvgl_SYMBOL_OK(lua_State* L);
+int lvgl_SYMBOL_CLOSE(lua_State* L);
+
 // Font constants
 int lvgl_font_montserrat_14(lua_State* L);
 int lvgl_font_montserrat_16(lua_State* L);
+int lvgl_font_montserrat_20(lua_State* L);
+int lvgl_font_montserrat_12(lua_State* L);
 int lvgl_font_montserrat_20(lua_State* L);
 
 // Animation constants

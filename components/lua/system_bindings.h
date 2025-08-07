@@ -36,11 +36,20 @@ int system_delay(lua_State* L);
 int system_get_free_heap(lua_State* L);
 int system_get_psram_size(lua_State* L);
 int system_restart(lua_State* L);
+int system_sleep(lua_State* L);
 
 // Timer functions
 int system_timer_create(lua_State* L);
 int system_timer_start(lua_State* L);
 int system_timer_stop(lua_State* L);
+
+// SD Card extended functions
+int system_sd_format(lua_State* L);
+int system_sd_check_status(lua_State* L);
+
+// WiFi extended functions  
+int system_wifi_get_status(lua_State* L);
+int system_wifi_get_saved_networks(lua_State* L);
 
 #ifdef __cplusplus
 }
