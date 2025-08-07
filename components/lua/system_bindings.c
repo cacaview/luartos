@@ -89,7 +89,18 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 }
 
 // SD Card functions
-int system_sd_init(lua_State* L) {
+
+/**
+ * @brief Internal implementation of SD card initialization.
+ * This function contains the core logic and is safe to call multiple times.
+ * @return true on success, false on failure.
+ */
+static bool internal_sd_init(void) {
+    if (s_sd_mounted) {
+        ESP_LOGI(TAG, "SD card already mounted.");
+        return true;
+    }
+
     esp_err_t ret;
     
     ESP_LOGI(TAG, "Initializing SD card using SPI protocol");
@@ -108,11 +119,12 @@ int system_sd_init(lua_State* L) {
         };
         
         ret = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cfg, SDSPI_DEFAULT_DMA);
-        if (ret != ESP_OK) {
+        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
             ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
-            lua_pushboolean(L, false);
-            lua_pushstring(L, esp_err_to_name(ret));
-            return 2;
+            return false;
+        }
+        if (ret == ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "SPI bus was already initialized.");
         }
         
         s_spi_bus_initialized = true;
@@ -122,21 +134,17 @@ int system_sd_init(lua_State* L) {
     // Configure SD/MMC host for SPI protocol
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SDCARD_SPI_HOST;
-    host.max_freq_khz = 1000;  // Start with conservative 1MHz
     
     // Configure SPI device
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = SDCARD_CS_GPIO;
     slot_config.host_id = SDCARD_SPI_HOST;
-    slot_config.gpio_cd = GPIO_NUM_NC;    // No card detect
-    slot_config.gpio_wp = GPIO_NUM_NC;    // No write protect
-    slot_config.gpio_int = GPIO_NUM_NC;   // No interrupt
     
     // Mount filesystem
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 5,
-        .allocation_unit_size = 0  // Use default
+        .allocation_unit_size = 16 * 1024
     };
     
     sdmmc_card_t *card;
@@ -153,30 +161,39 @@ int system_sd_init(lua_State* L) {
         } else {
             ESP_LOGE(TAG, "Failed to initialize SD card: %s", esp_err_to_name(ret));
         }
-        lua_pushboolean(L, false);
-        lua_pushstring(L, esp_err_to_name(ret));
-        return 2;
+        return false;
     }
     
-    // Print card info
-    ESP_LOGI(TAG, "SD card mounted successfully via SPI");
-    ESP_LOGI(TAG, "Card name: %s", card->cid.name);
-    ESP_LOGI(TAG, "Card type: %s", (card->ocr & (1 << 30)) ? "SDHC/SDXC" : "SDSC");
-    
-    // 详细的硬件容量信息调试
-    ESP_LOGI(TAG, "=== SD CARD HARDWARE INFO ===");
-    ESP_LOGI(TAG, "CSD capacity: %u", card->csd.capacity);
-    ESP_LOGI(TAG, "CSD sector size: %u", card->csd.sector_size);
-    ESP_LOGI(TAG, "Calculated size: %llu bytes", ((uint64_t) card->csd.capacity) * card->csd.sector_size);
-    ESP_LOGI(TAG, "Calculated size: %llu MB", ((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
-    ESP_LOGI(TAG, "Calculated size: %llu GB", ((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024 * 1024));
-    ESP_LOGI(TAG, "=== END HARDWARE INFO ===");
+    ESP_LOGI(TAG, "SD card mounted successfully at %s", MOUNT_POINT);
+    sdmmc_card_print_info(stdout, card);
     
     s_sd_mounted = true;
-    
-    lua_pushboolean(L, true);
-    lua_pushstring(L, "SD card mounted successfully");
-    return 2;
+    return true;
+}
+
+/**
+ * @brief C-callable function to initialize the SD card.
+ * Exposed in the header file.
+ */
+bool system_bindings_init_sdcard(void) {
+    return internal_sd_init();
+}
+
+/**
+ * @brief Lua-callable function to initialize the SD card.
+ * Pushes results to the Lua stack.
+ */
+int system_sd_init(lua_State* L) {
+    bool success = internal_sd_init();
+    if (success) {
+        lua_pushboolean(L, true);
+        lua_pushstring(L, "SD card mounted successfully");
+        return 2;
+    } else {
+        lua_pushboolean(L, false);
+        lua_pushstring(L, "Failed to mount SD card");
+        return 2;
+    }
 }
 
 int system_sd_is_mounted(lua_State* L) {
