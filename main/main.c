@@ -11,6 +11,9 @@
 #include "esp_log.h"        // Add ESP log support
 #include "esp_timer.h"      // Add timer support
 #include "esp_heap_caps.h"  // Add heap capabilities for PSRAM
+#include "esp_vfs_fat.h"    // Add VFS for FAT filesystem on SD card
+#include "sdmmc_cmd.h"      // Add SD/MMC command definitions
+#include "driver/sdspi_host.h" // Add SD SPI host driver
 
 #include "lvgl.h"
 #include "lvgl_helpers.h"
@@ -24,10 +27,18 @@ static const char *TAG = "MAIN_APP";
 #define LV_TICK_PERIOD_MS 1
 
 static void gui_task(void *pvParameter);
+static bool init_sdcard(void);
 void run_lua_demo(void);
 void check_gpio_status(void);
 void hardware_display_test(void);
 void log_memory_usage(const char* stage);
+
+// SD card configuration based on WIKI.md
+#define MOUNT_POINT "/sdcard"
+#define PIN_NUM_MISO 41
+#define PIN_NUM_MOSI 42
+#define PIN_NUM_CLK  11
+#define PIN_NUM_CS   9
 
 void app_main() {
     ESP_LOGI(TAG, "Application startup");
@@ -85,6 +96,9 @@ static void gui_task(void *pvParameter) {
     ESP_LOGI(TAG, "Total PSRAM: %d bytes", heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
 #endif
     
+    // Initialize SD card
+    bool sdcard_mounted = init_sdcard();
+
     // Check GPIO status
     check_gpio_status();
     
@@ -209,31 +223,55 @@ static void gui_task(void *pvParameter) {
     }
     
     log_memory_usage("After Lua engine init");
-    
-    // Load and run OOBE Lua script
-    ESP_LOGI(TAG, "Loading OOBE Lua script...");
-    
-    // Try to load from file first
-    int lua_result = lua_engine_exec_file(g_lua_state, "/spiffs/oobe_lua.lua");
-    if (lua_result != 0) {
-        ESP_LOGW(TAG, "Failed to load OOBE from file, trying embedded script");
+
+    bool app_loaded = false;
+    if (sdcard_mounted) {
+        const char *app_path = MOUNT_POINT "/APP/main/main.lua";
+        ESP_LOGI(TAG, "Attempting to load app from SD card: %s", app_path);
         
-        // Load embedded OOBE script
-        extern const char oobe_lua_lua_start[] asm("_binary_oobe_lua_lua_start");
-        extern const char oobe_lua_lua_end[] asm("_binary_oobe_lua_lua_end");
-        const size_t oobe_lua_size = oobe_lua_lua_end - oobe_lua_lua_start;
-        
-        ESP_LOGI(TAG, "Embedded OOBE script size: %zu bytes", oobe_lua_size);
-        
-        lua_result = lua_engine_exec_string(g_lua_state, oobe_lua_lua_start);
-        if (lua_result != 0) {
-            ESP_LOGE(TAG, "Failed to load embedded OOBE script, falling back to demo");
-            run_lua_demo();
+        FILE* f = fopen(app_path, "r");
+        if (f) {
+            fclose(f);
+            ESP_LOGI(TAG, "File '%s' found on SD card.", app_path);
+            int lua_result = lua_engine_exec_file(g_lua_state, app_path);
+            if (lua_result == 0) {
+                ESP_LOGI(TAG, "Successfully loaded and executed app from SD card.");
+                app_loaded = true;
+            } else {
+                ESP_LOGE(TAG, "Error executing Lua script from SD card. Error code: %d. Falling back to OOBE.", lua_result);
+            }
         } else {
-            ESP_LOGI(TAG, "Embedded OOBE script loaded successfully");
+            ESP_LOGW(TAG, "Application file not found on SD card: %s", app_path);
         }
-    } else {
-        ESP_LOGI(TAG, "OOBE Lua script loaded from file successfully");
+    }
+
+    if (!app_loaded) {
+        ESP_LOGI(TAG, "App not loaded from SD card, falling back to OOBE.");
+        // Load and run OOBE Lua script
+        ESP_LOGI(TAG, "Loading OOBE Lua script...");
+        
+        // Try to load from file first
+        int lua_result = lua_engine_exec_file(g_lua_state, "/spiffs/oobe_lua.lua");
+        if (lua_result != 0) {
+            ESP_LOGW(TAG, "Failed to load OOBE from file, trying embedded script");
+            
+            // Load embedded OOBE script
+            extern const char oobe_lua_lua_start[] asm("_binary_oobe_lua_lua_start");
+            extern const char oobe_lua_lua_end[] asm("_binary_oobe_lua_lua_end");
+            const size_t oobe_lua_size = oobe_lua_lua_end - oobe_lua_lua_start;
+            
+            ESP_LOGI(TAG, "Embedded OOBE script size: %zu bytes", oobe_lua_size);
+            
+            lua_result = lua_engine_exec_string(g_lua_state, oobe_lua_lua_start);
+            if (lua_result != 0) {
+                ESP_LOGE(TAG, "Failed to load embedded OOBE script, falling back to demo");
+                run_lua_demo();
+            } else {
+                ESP_LOGI(TAG, "Embedded OOBE script loaded successfully");
+            }
+        } else {
+            ESP_LOGI(TAG, "OOBE Lua script loaded from file successfully");
+        }
     }
     
     log_memory_usage("After loading Lua script");
@@ -254,8 +292,8 @@ static void gui_task(void *pvParameter) {
         
         loop_count++;
         
-        // Print status information every 5 seconds
-        if (start_time - last_log_time > 5000) {
+        // Print status information every 10 seconds
+        if (start_time - last_log_time > 10000) {
             ESP_LOGI(TAG, "Main loop running - loop count: %d", loop_count);
             log_memory_usage("Main loop status");
             
@@ -400,5 +438,54 @@ void log_memory_usage(const char* stage) {
     
     // Print LVGL memory statistics
     lvgl_print_memory_stats();
+}
+
+static bool init_sdcard(void)
+{
+    ESP_LOGI(TAG, "Initializing SD card using SPI...");
+
+    esp_err_t ret;
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    host.slot = SPI3_HOST;
+
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = PIN_NUM_MOSI,
+        .miso_io_num = PIN_NUM_MISO,
+        .sclk_io_num = PIN_NUM_CLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4000,
+    };
+    ret = spi_bus_initialize(host.slot, &bus_cfg, SDSPI_DEFAULT_DMA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize spi bus.");
+        return false;
+    }
+
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.gpio_cs   = PIN_NUM_CS;
+    slot_config.host_id = host.slot;
+
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = false,
+        .max_files = 5,
+        .allocation_unit_size = 16 * 1024
+    };
+
+    sdmmc_card_t* card;
+    ret = esp_vfs_fat_sdspi_mount(MOUNT_POINT, &host, &slot_config, &mount_config, &card);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            ESP_LOGE(TAG, "Failed to mount filesystem. If you want the card to be formatted, set format_if_mount_failed = true.");
+        } else {
+            ESP_LOGE(TAG, "Failed to initialize the card (%s). Make sure SD card lines have pull-up resistors on a breadboard.", esp_err_to_name(ret));
+        }
+        return false;
+    }
+
+    ESP_LOGI(TAG, "SD card mounted successfully at %s", MOUNT_POINT);
+    sdmmc_card_print_info(stdout, card);
+    return true;
 }
 
