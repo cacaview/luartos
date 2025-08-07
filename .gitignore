@@ -2,3 +2,4 @@
 build/
 GUI-Guider-Projects
 .roo
+converter/__pycache__
