@@ -60,32 +60,37 @@ lua_State* lua_engine_init(void) {
     ESP_LOGI(TAG, "Opening standard Lua libraries...");
     luaL_openlibs(L);
     
-    // --- Replace searchers table ---
-    ESP_LOGI(TAG, "Replacing Lua searchers...");
-    lua_getglobal(L, "package");
-    lua_getfield(L, -1, "searchers");
+    // --- Replace searchers table with a minimal, embedded-friendly version ---
+    ESP_LOGI(TAG, "Replacing Lua searchers for embedded environment...");
+    lua_getglobal(L, "package"); // Stack: [package]
+    lua_getfield(L, -1, "searchers"); // Stack: [package, searchers]
+
     if (lua_istable(L, -1)) {
-        // Create a new table for our searchers
-        lua_createtable(L, 2, 0);
+        // We need the first searcher (preload) from the original table.
+        lua_rawgeti(L, -1, 1); // Stack: [package, searchers, preload_func]
+        lua_CFunction preload_searcher = lua_tocfunction(L, -1);
+        lua_pop(L, 1); // Stack: [package, searchers]
 
-        // Get the original preload searcher (it's always first and important)
-        lua_getglobal(L, "package");
-        lua_getfield(L, -1, "searchers");
-        lua_rawgeti(L, -1, 1); 
-        lua_rawseti(L, -4, 1); // Add preload searcher to our new table at index 1
-        lua_pop(L, 2); // Pop package and searchers
+        // Create a new, empty table for our searchers
+        lua_createtable(L, 2, 0); // Stack: [package, searchers, new_searchers]
 
-        // Add our custom searcher at index 2
+        // Add the preload searcher at index 1
+        if (preload_searcher) {
+            lua_pushcfunction(L, preload_searcher);
+            lua_rawseti(L, -2, 1);
+        }
+
+        // Add our custom SD card searcher at index 2
         lua_pushcfunction(L, sdcard_searcher);
         lua_rawseti(L, -2, 2);
 
         // Replace the old searchers table with our new one
-        lua_setfield(L, -3, "searchers");
+        lua_setfield(L, -3, "searchers"); // package.searchers = new_searchers. Stack: [package, searchers]
         ESP_LOGI(TAG, "Replaced searchers with: preload, sdcard_searcher");
     } else {
         ESP_LOGW(TAG, "Could not find package.searchers table to replace.");
     }
-    lua_pop(L, 1); // Pop 'package' table
+    lua_pop(L, 2); // Pop package and original searchers table, cleaning up the stack
     
     // Log memory after opening libraries
     size_t total_alloc, psram_alloc, internal_alloc;

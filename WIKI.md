@@ -1100,3 +1100,16 @@ if (all_preloaded) {
 - **常量和枚举**: C中的枚举和宏定义（如`LV_SCR_LOAD_ANIM_NONE`）在Lua中被绑定为返回相应值的函数（如`lvgl.SCR_LOAD_ANIM_NONE()`）。
 
 这个技术文档涵盖了LuaRTOS的所有技术细节，从硬件连接到软件架构，从API参考到开发指南，以及完整的故障排除和性能优化指导。开发者可以根据这个文档快速上手并深入开发基于LuaRTOS的项目。
+
+### 新增 LVGL 绑定 (近期更新)
+
+为了支持更复杂的UI功能，我们新增了以下LVGL API的Lua绑定。
+
+| 函数/常量 | 类型 | 描述 |
+| :--- | :--- | :--- |
+| `lvgl.textarea_set_placeholder_text(ta, text)` | 函数 | 设置文本区域的占位符文本。 |
+| `lvgl.textarea_set_max_length(ta, length)` | 函数 | 设置文本区域的最大字符长度。 |
+| `lvgl.pct(value)` | 函数 | 用于设置基于父对象尺寸的百分比值。例如 `lvgl.pct(50)` 代表50%。 |
+| `lvgl.SCROLLBAR_MODE_ON()` | 常量 | 启用滚动条。 |
+| `lvgl.ALIGN_OUT_BOTTOM_LEFT()` | 常量 | 在对象外部左下角对齐。 |
+| `lvgl.DIR_TOP()` | 常量 | 表示顶部方向，用于Tabview等控件。 |

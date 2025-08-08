@@ -26,7 +26,7 @@ static const char *TAG = "MAIN_APP";
 
 // --- Preload Helper Function ---
 // Reads a file into a buffer and preloads it into package.preload
-static bool preload_module(lua_State *L, const char *module_name, const char *file_path) {
+static bool __attribute__((unused)) preload_module(lua_State *L, const char *module_name, const char *file_path) {
     ESP_LOGI(TAG, "Preloading module '%s' from '%s'", module_name, file_path);
 
     FILE *f = fopen(file_path, "rb");
@@ -93,7 +93,8 @@ void app_main() {
     
     ESP_LOGI(TAG, "Creating GUI task...");
     
-    uint32_t stack_size = 4096 * 3;
+    uint32_t stack_size = 32768; // Set to 32KB to handle large initial script stack usage.
+    ESP_LOGI(TAG, "Allocating %d bytes for GUI task stack", stack_size);
     BaseType_t result = xTaskCreate(gui_task, "gui", stack_size, NULL, 5, NULL);
     if (result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create GUI task: %d", result);
@@ -142,8 +143,18 @@ static void gui_task(void *pvParameter) {
 
     if (buf1 == NULL) {
         ESP_LOGE(TAG, "Failed to allocate display buffer 1!");
+        vTaskDelete(NULL);
         return;
     }
+
+#ifndef CONFIG_LV_TFT_DISPLAY_MONOCHROME
+    if (buf2 == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer 2!");
+        free(buf1);
+        vTaskDelete(NULL);
+        return;
+    }
+#endif
 
     lv_disp_draw_buf_t disp_buf;
     lv_disp_draw_buf_init(&disp_buf, buf1, buf2, size_in_px);
@@ -175,40 +186,40 @@ static void gui_task(void *pvParameter) {
 
     bool app_loaded = false;
     if (sdcard_mounted) {
-        // --- Preload all required modules before running main script ---
-        const char* modules_to_preload[][2] = {
-            {"APP.main.gui_guider", "/sdcard/APP/main/gui_guider.lua"},
-            {"APP.main.events_init", "/sdcard/APP/main/events_init.lua"},
-            {"APP.main.setup_scr_main", "/sdcard/APP/main/setup_scr_main.lua"},
-            {"APP.main.setup_scr_WiFi", "/sdcard/APP/main/setup_scr_WiFi.lua"},
-            {"APP.main.setup_scr_wifi_password", "/sdcard/APP/main/setup_scr_wifi_password.lua"},
-            {"APP.main.setup_scr_Bluetooth", "/sdcard/APP/main/setup_scr_Bluetooth.lua"},
-            {"APP.main.setup_scr_Hotspot", "/sdcard/APP/main/setup_scr_Hotspot.lua"},
-            {"APP.main.widgets_init", "/sdcard/APP/main/widgets_init.lua"},
-            {NULL, NULL} // End of list
-        };
+        // --- Preloading is now disabled. Modules will be loaded on-demand by Lua's `require`. ---
+        // const char* modules_to_preload[][2] = {
+        //     {"APP.main.gui_guider", "/sdcard/APP/main/gui_guider.lua"},
+        //     {"APP.main.events_init", "/sdcard/APP/main/events_init.lua"},
+        //     {"APP.main.setup_scr_main", "/sdcard/APP/main/setup_scr_main.lua"},
+        //     {"APP.main.setup_scr_WiFi", "/sdcard/APP/main/setup_scr_WiFi.lua"},
+        //     {"APP.main.setup_scr_wifi_password", "/sdcard/APP/main/setup_scr_wifi_password.lua"},
+        //     {"APP.main.setup_scr_Bluetooth", "/sdcard/APP/main/setup_scr_Bluetooth.lua"},
+        //     {"APP.main.setup_scr_Hotspot", "/sdcard/APP/main/setup_scr_Hotspot.lua"},
+        //     {"APP.main.widgets_init", "/sdcard/APP/main/widgets_init.lua"},
+        //     {NULL, NULL} // End of list
+        // };
 
-        bool all_preloaded = true;
-        for (int i = 0; modules_to_preload[i][0] != NULL; i++) {
-            if (!preload_module(g_lua_state, modules_to_preload[i][0], modules_to_preload[i][1])) {
-                all_preloaded = false;
-                break;
-            }
-        }
+        // bool all_preloaded = true;
+        // for (int i = 0; modules_to_preload[i][0] != NULL; i++) {
+        //     if (!preload_module(g_lua_state, modules_to_preload[i][0], modules_to_preload[i][1])) {
+        //         all_preloaded = false;
+        //         break;
+        //     }
+        // }
 
-        if (all_preloaded) {
-            const char *app_path = "/sdcard/APP/main/main.lua";
-            ESP_LOGI(TAG, "All modules preloaded, executing main script: %s", app_path);
-            int lua_result = lua_engine_exec_file(g_lua_state, app_path);
-            if (lua_result == 0) {
-                ESP_LOGI(TAG, "Successfully executed app from SD card.");
-                app_loaded = true;
-            } else {
-                ESP_LOGE(TAG, "Error executing main Lua script after preloading. Error code: %d.", lua_result);
-            }
+        // if (all_preloaded) {
+        const char *app_path = "/sdcard/APP/main/main.lua";
+        ESP_LOGI(TAG, "Executing main script with on-demand loading: %s", app_path);
+        int lua_result = lua_engine_exec_file(g_lua_state, app_path);
+        if (lua_result == 0) {
+            ESP_LOGI(TAG, "Successfully executed app from SD card.");
+            app_loaded = true;
         } else {
-            ESP_LOGE(TAG, "Failed to preload one or more modules. Falling back to OOBE.");
+            ESP_LOGE(TAG, "Error executing main Lua script. Error code: %d.", lua_result);
         }
+        // } else {
+        //     ESP_LOGE(TAG, "Failed to preload one or more modules. Falling back to OOBE.");
+        // }
     } else {
         ESP_LOGW(TAG, "SD card not mounted, skipping app load.");
     }

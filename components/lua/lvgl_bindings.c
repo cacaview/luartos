@@ -12,6 +12,12 @@ static lv_obj_t* check_lvgl_obj(lua_State* L, int index) {
     luaL_argcheck(L, obj_ptr != NULL, index, "expected lvgl object");
     lv_obj_t* obj = (lv_obj_t*)*obj_ptr;
     luaL_argcheck(L, obj != NULL, index, "invalid lvgl object (null pointer)");
+
+    // Add a crucial check to ensure the object is still valid in LVGL's context
+    if (!lv_obj_is_valid(obj)) {
+        luaL_error(L, "attempt to use an invalid or deleted lvgl object");
+    }
+    
     return obj;
 }
 
@@ -22,6 +28,7 @@ static void push_lvgl_obj(lua_State* L, lv_obj_t* obj) {
         return;
     }
     
+    ESP_LOGD(TAG, "Pushing new LVGL object to Lua: %p", obj);
     void** obj_ptr = (void**)lua_newuserdata(L, sizeof(void*));
     *obj_ptr = obj;
     luaL_getmetatable(L, LVGL_OBJ_METATABLE);
@@ -42,7 +49,11 @@ int lvgl_obj_create(lua_State* L) {
     }
     
     lv_obj_t* obj = lv_obj_create(parent);
-    push_lvgl_obj(L, obj);
+    if (obj == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, obj);
+    }
     return 1;
 }
 
@@ -156,7 +167,11 @@ int lvgl_obj_set_style_border_color(lua_State* L) {
 int lvgl_label_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* label = lv_label_create(parent);
-    push_lvgl_obj(L, label);
+    if (label == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, label);
+    }
     return 1;
 }
 
@@ -171,14 +186,22 @@ int lvgl_label_set_text(lua_State* L) {
 int lvgl_btn_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* btn = lv_btn_create(parent);
-    push_lvgl_obj(L, btn);
+    if (btn == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, btn);
+    }
     return 1;
 }
 
 int lvgl_slider_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* slider = lv_slider_create(parent);
-    push_lvgl_obj(L, slider);
+    if (slider == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, slider);
+    }
     return 1;
 }
 
@@ -194,14 +217,22 @@ int lvgl_slider_set_value(lua_State* L) {
 int lvgl_switch_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* sw = lv_switch_create(parent);
-    push_lvgl_obj(L, sw);
+    if (sw == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, sw);
+    }
     return 1;
 }
 
 int lvgl_bar_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* bar = lv_bar_create(parent);
-    push_lvgl_obj(L, bar);
+    if (bar == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, bar);
+    }
     return 1;
 }
 
@@ -235,20 +266,32 @@ int lvgl_bar_set_mode(lua_State* L) {
 int lvgl_spangroup_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* spangroup = lv_spangroup_create(parent);
-    push_lvgl_obj(L, spangroup);
+    if (spangroup == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, spangroup);
+    }
     return 1;
 }
 
 int lvgl_spangroup_new_span(lua_State* L) {
     lv_obj_t* spangroup = check_lvgl_obj(L, 1);
     lv_span_t* span = lv_spangroup_new_span(spangroup);
-    lua_pushlightuserdata(L, span);
+    if (span == NULL) {
+        lua_pushnil(L);
+    } else {
+        lua_pushlightuserdata(L, span);
+    }
     return 1;
 }
 
 int lvgl_span_set_text(lua_State* L) {
     lv_span_t* span = (lv_span_t*)lua_touserdata(L, 1);
     const char* text = luaL_checkstring(L, 2);
+
+    if (span == NULL) {
+        return luaL_error(L, "attempt to use a NULL span object");
+    }
     
     lv_span_set_text(span, text);
     return 0;
@@ -321,14 +364,22 @@ int lvgl_msgbox_create(lua_State* L) {
         free(btn_txts);
     }
 
-    push_lvgl_obj(L, msgbox);
+    if (msgbox == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, msgbox);
+    }
     return 1;
 }
 
 int lvgl_list_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* list = lv_list_create(parent);
-    push_lvgl_obj(L, list);
+    if (list == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, list);
+    }
     return 1;
 }
 
@@ -337,7 +388,11 @@ int lvgl_list_add_text(lua_State* L) {
     const char* txt = luaL_checkstring(L, 2);
     
     lv_obj_t* txt_obj = lv_list_add_text(list, txt);
-    push_lvgl_obj(L, txt_obj);
+    if (txt_obj == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, txt_obj);
+    }
     return 1;
 }
 
@@ -347,7 +402,11 @@ int lvgl_list_add_btn(lua_State* L) {
     const char* txt = luaL_checkstring(L, 3);
     
     lv_obj_t* btn = lv_list_add_btn(list, icon, txt);
-    push_lvgl_obj(L, btn);
+    if (btn == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, btn);
+    }
     return 1;
 }
 
@@ -536,6 +595,9 @@ typedef struct {
     int callback_ref;
 } lua_event_data_t;
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 static void lua_event_callback(lv_event_t* e) {
     lua_event_data_t* event_data = (lua_event_data_t*)lv_event_get_user_data(e);
     if (!event_data || !event_data->L || event_data->callback_ref == LUA_NOREF) {
@@ -550,7 +612,8 @@ static void lua_event_callback(lv_event_t* e) {
         lua_rawgeti(L, LUA_REGISTRYINDEX, event_data->callback_ref);
         if (lua_isfunction(L, -1)) {
             lua_pushlightuserdata(L, e);
-            if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+            int pcall_result = lua_pcall(L, 1, 0, 0);
+            if (pcall_result != LUA_OK) {
                 const char* error_msg = lua_tostring(L, -1);
                 ESP_LOGE("LVGL_EVENT", "Lua callback error: %s", error_msg ? error_msg : "unknown error");
                 lua_pop(L, 1);
@@ -561,7 +624,6 @@ static void lua_event_callback(lv_event_t* e) {
     }
     // Handle the DELETE event to clean up resources
     else {
-        ESP_LOGD("LVGL_BINDINGS", "Cleaning up event data for object %p", lv_event_get_target(e));
         // Unreference the Lua callback function
         luaL_unref(L, LUA_REGISTRYINDEX, event_data->callback_ref);
         // Free the container
@@ -682,6 +744,11 @@ int lvgl_scrollbar_mode_off(lua_State* L) {
     return 1;
 }
 
+int lvgl_scrollbar_mode_on(lua_State* L) {
+    lua_pushinteger(L, LV_SCROLLBAR_MODE_ON);
+    return 1;
+}
+
 // Label mode constants
 int lvgl_label_long_wrap(lua_State* L) {
     lua_pushinteger(L, LV_LABEL_LONG_WRAP);
@@ -708,6 +775,12 @@ int lvgl_bar_mode_normal(lua_State* L) {
 // Grad dir constants
 int lvgl_grad_dir_none(lua_State* L) {
     lua_pushinteger(L, LV_GRAD_DIR_NONE);
+    return 1;
+}
+
+// Direction constants
+int lvgl_dir_top(lua_State* L) {
+    lua_pushinteger(L, LV_DIR_TOP);
     return 1;
 }
 
@@ -854,8 +927,15 @@ int lvgl_obj_is_valid(lua_State* L) {
 }
 
 int lvgl_obj_del(lua_State* L) {
-    lv_obj_t* obj = check_lvgl_obj(L, 1);
-    lv_obj_del(obj);
+    void** obj_ptr = (void**)luaL_checkudata(L, 1, LVGL_OBJ_METATABLE);
+    if (obj_ptr && *obj_ptr) {
+        lv_obj_t* obj = (lv_obj_t*)*obj_ptr;
+        if (lv_obj_is_valid(obj)) {
+            lv_obj_del(obj);
+        }
+        // Invalidate the Lua userdata by setting its pointer to NULL.
+        *obj_ptr = NULL;
+    }
     return 0;
 }
 
@@ -885,10 +965,25 @@ int lvgl_obj_get_height(lua_State* L) {
 }
 
 // Widget functions for missing entries
+int lvgl_img_create(lua_State* L) {
+    lv_obj_t* parent = check_lvgl_obj(L, 1);
+    lv_obj_t* img = lv_img_create(parent);
+    if (img == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, img);
+    }
+    return 1;
+}
+
 int lvgl_textarea_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* textarea = lv_textarea_create(parent);
-    push_lvgl_obj(L, textarea);
+    if (textarea == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, textarea);
+    }
     return 1;
 }
 
@@ -913,6 +1008,20 @@ int lvgl_textarea_set_one_line(lua_State* L) {
     return 0;
 }
 
+int lvgl_textarea_set_placeholder_text(lua_State* L) {
+    lv_obj_t* ta = check_lvgl_obj(L, 1);
+    const char* txt = luaL_checkstring(L, 2);
+    lv_textarea_set_placeholder_text(ta, txt);
+    return 0;
+}
+
+int lvgl_textarea_set_max_length(lua_State* L) {
+    lv_obj_t* ta = check_lvgl_obj(L, 1);
+    uint32_t len = luaL_checkinteger(L, 2);
+    lv_textarea_set_max_length(ta, len);
+    return 0;
+}
+
 int lvgl_textarea_set_password_mode(lua_State* L) {
     lv_obj_t* ta = check_lvgl_obj(L, 1);
     bool en = lua_toboolean(L, 2);
@@ -923,7 +1032,11 @@ int lvgl_textarea_set_password_mode(lua_State* L) {
 int lvgl_keyboard_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* keyboard = lv_keyboard_create(parent);
-    push_lvgl_obj(L, keyboard);
+    if (keyboard == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, keyboard);
+    }
     return 1;
 }
 
@@ -938,7 +1051,11 @@ int lvgl_keyboard_set_textarea(lua_State* L) {
 int lvgl_menu_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
     lv_obj_t* menu = lv_menu_create(parent);
-    push_lvgl_obj(L, menu);
+    if (menu == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, menu);
+    }
     return 1;
 }
 
@@ -946,14 +1063,50 @@ int lvgl_menu_page_create(lua_State* L) {
     lv_obj_t* menu = check_lvgl_obj(L, 1);
     const char* title = lua_isnoneornil(L, 2) ? NULL : luaL_checkstring(L, 2);
     lv_obj_t* page = lv_menu_page_create(menu, (char*)title);
-    push_lvgl_obj(L, page);
+    if (page == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, page);
+    }
     return 1;
 }
 
 int lvgl_menu_cont_create(lua_State* L) {
     lv_obj_t* page = check_lvgl_obj(L, 1);
     lv_obj_t* cont = lv_menu_cont_create(page);
-    push_lvgl_obj(L, cont);
+    if (cont == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, cont);
+    }
+    return 1;
+}
+
+// Tabview bindings
+int lvgl_tabview_create(lua_State* L) {
+    lv_obj_t* parent = check_lvgl_obj(L, 1);
+    lv_dir_t dir = luaL_checkinteger(L, 2);
+    lv_coord_t size = luaL_checkinteger(L, 3);
+
+    lv_obj_t* tabview = lv_tabview_create(parent, dir, size);
+    if (tabview == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, tabview);
+    }
+    return 1;
+}
+
+int lvgl_tabview_add_tab(lua_State* L) {
+    lv_obj_t* tabview = check_lvgl_obj(L, 1);
+    const char* name = luaL_checkstring(L, 2);
+
+    lv_obj_t* tab = lv_tabview_add_tab(tabview, name);
+    if (tab == NULL) {
+        lua_pushnil(L);
+    } else {
+        push_lvgl_obj(L, tab);
+    }
     return 1;
 }
 
@@ -1093,9 +1246,33 @@ int lvgl_align_out_top_mid(lua_State* L) {
     return 1;
 }
 
+int lvgl_align_out_bottom_left(lua_State* L) {
+    lua_pushinteger(L, LV_ALIGN_OUT_BOTTOM_LEFT);
+    return 1;
+}
+
+// Special value functions
+int lvgl_pct(lua_State* L) {
+    int32_t v = luaL_checkinteger(L, 1);
+    lua_pushinteger(L, LV_PCT(v));
+    return 1;
+}
+
 // Object metatable functions
 static int lvgl_obj_gc(lua_State* L) {
-    // LVGL objects are managed by LVGL itself, so we don't free them here
+    // This is called by Lua's garbage collector.
+    // We need to ensure the underlying LVGL object is deleted.
+    void** obj_ptr = (void**)luaL_checkudata(L, 1, LVGL_OBJ_METATABLE);
+    if (obj_ptr && *obj_ptr) {
+        lv_obj_t* obj = (lv_obj_t*)*obj_ptr;
+        // Check if the object is still valid before deleting.
+        // This prevents double-freeing if it was already deleted manually.
+        if (lv_obj_is_valid(obj)) {
+            lv_obj_del(obj);
+        }
+        // Set the pointer to NULL to prevent use-after-free.
+        *obj_ptr = NULL;
+    }
     return 0;
 }
 
@@ -1171,13 +1348,20 @@ static const luaL_Reg lvgl_functions[] = {
     {"list_create", lvgl_list_create},
     {"list_add_text", lvgl_list_add_text},
     {"list_add_btn", lvgl_list_add_btn},
+    {"img_create", lvgl_img_create},
     {"textarea_create", lvgl_textarea_create},
     {"textarea_set_text", lvgl_textarea_set_text},
     {"textarea_get_text", lvgl_textarea_get_text},
     {"textarea_set_one_line", lvgl_textarea_set_one_line},
+    {"textarea_set_placeholder_text", lvgl_textarea_set_placeholder_text},
+    {"textarea_set_max_length", lvgl_textarea_set_max_length},
     {"textarea_set_password_mode", lvgl_textarea_set_password_mode},
     {"keyboard_create", lvgl_keyboard_create},
     {"keyboard_set_textarea", lvgl_keyboard_set_textarea},
+
+    // Tabview functions
+    {"tabview_create", lvgl_tabview_create},
+    {"tabview_add_tab", lvgl_tabview_add_tab},
 
     // Menu functions
     {"menu_create", lvgl_menu_create},
@@ -1201,6 +1385,7 @@ static const luaL_Reg lvgl_functions[] = {
     {"obj_get_y", lvgl_obj_get_y},
     {"obj_get_width", lvgl_obj_get_width},
     {"obj_get_height", lvgl_obj_get_height},
+    {"pct", lvgl_pct},
     
     // Event functions
     {"event_get_code", lvgl_event_get_code},
@@ -1239,7 +1424,9 @@ static const luaL_Reg lvgl_functions[] = {
     {"TEXT_DECOR_NONE", lvgl_text_decor_none},
     {"BORDER_SIDE_FULL", lvgl_border_side_full},
     {"GRAD_DIR_NONE", lvgl_grad_dir_none},
+    {"DIR_TOP", lvgl_dir_top},
     {"SCROLLBAR_MODE_OFF", lvgl_scrollbar_mode_off},
+    {"SCROLLBAR_MODE_ON", lvgl_scrollbar_mode_on},
     {"LABEL_LONG_WRAP", lvgl_label_long_wrap},
     {"BAR_MODE_NORMAL", lvgl_bar_mode_normal},
     {"ANIM_OFF", lvgl_anim_off},
@@ -1263,6 +1450,7 @@ static const luaL_Reg lvgl_functions[] = {
     {"ALIGN_BOTTOM_LEFT", lvgl_align_bottom_left},
     {"ALIGN_BOTTOM_RIGHT", lvgl_align_bottom_right},
     {"ALIGN_OUT_TOP_MID", lvgl_align_out_top_mid},
+    {"ALIGN_OUT_BOTTOM_LEFT", lvgl_align_out_bottom_left},
     
     // Animation constants
     {"ANIM_ON", lvgl_anim_on},
