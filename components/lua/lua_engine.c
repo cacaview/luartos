@@ -5,6 +5,39 @@
 
 static const char *TAG = "LUA_ENGINE";
 
+// Custom searcher for loading modules from the SD card
+static int sdcard_searcher(lua_State *L) {
+    const char *module_name = luaL_checkstring(L, 1);
+    
+    // Allocate buffer for the module path
+    char module_path[256];
+    strcpy(module_path, module_name);
+
+    // Replace dots with slashes
+    for (char *p = module_path; *p; ++p) {
+        if (*p == '.') {
+            *p = '/';
+        }
+    }
+
+    // Construct the full path
+    char full_path[512];
+    snprintf(full_path, sizeof(full_path), "/sdcard/%s.lua", module_path);
+
+    // Try to load the file
+    // We use luaL_loadfile because it checks for file existence and compiles it
+    if (luaL_loadfile(L, full_path) == LUA_OK) {
+        // If successful, push the filename and return 2 (chunk, filename)
+        lua_pushstring(L, full_path);
+        return 2;
+    }
+
+    // If not found, return an error message string
+    lua_pop(L, 1); // Remove error message from luaL_loadfile
+    lua_pushfstring(L, "\n\tno file '%s' (sdcard_searcher)", full_path);
+    return 1;
+}
+
 lua_State* lua_engine_init(void) {
     ESP_LOGI(TAG, "Initializing Lua engine with PSRAM support...");
     
@@ -26,6 +59,33 @@ lua_State* lua_engine_init(void) {
     // Open standard Lua libraries
     ESP_LOGI(TAG, "Opening standard Lua libraries...");
     luaL_openlibs(L);
+    
+    // --- Replace searchers table ---
+    ESP_LOGI(TAG, "Replacing Lua searchers...");
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "searchers");
+    if (lua_istable(L, -1)) {
+        // Create a new table for our searchers
+        lua_createtable(L, 2, 0);
+
+        // Get the original preload searcher (it's always first and important)
+        lua_getglobal(L, "package");
+        lua_getfield(L, -1, "searchers");
+        lua_rawgeti(L, -1, 1); 
+        lua_rawseti(L, -4, 1); // Add preload searcher to our new table at index 1
+        lua_pop(L, 2); // Pop package and searchers
+
+        // Add our custom searcher at index 2
+        lua_pushcfunction(L, sdcard_searcher);
+        lua_rawseti(L, -2, 2);
+
+        // Replace the old searchers table with our new one
+        lua_setfield(L, -3, "searchers");
+        ESP_LOGI(TAG, "Replaced searchers with: preload, sdcard_searcher");
+    } else {
+        ESP_LOGW(TAG, "Could not find package.searchers table to replace.");
+    }
+    lua_pop(L, 1); // Pop 'package' table
     
     // Log memory after opening libraries
     size_t total_alloc, psram_alloc, internal_alloc;

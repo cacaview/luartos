@@ -9,21 +9,70 @@
 #include "esp_freertos_hooks.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
-#include "esp_log.h"        // Add ESP log support
-#include "esp_timer.h"      // Add timer support
-#include "esp_heap_caps.h"  // Add heap capabilities for PSRAM
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_heap_caps.h"
 
 #include "lvgl.h"
 #include "lvgl_helpers.h"
-#include "lvgl_internal_alloc.h" // Add LVGL internal allocator
-#include "lua_engine.h"     // Add Lua engine support
-#include "main_simple_lua.h" // Add embedded simple Lua script
+#include "lvgl_internal_alloc.h"
+#include "lua_engine.h"
+#include "main_simple_lua.h"
+#include "system_bindings.h"
 
-// Debug tag
-#include "system_bindings.h"  // Add system bindings for unified init
 static const char *TAG = "MAIN_APP";
 
 #define LV_TICK_PERIOD_MS 1
+
+// --- Preload Helper Function ---
+// Reads a file into a buffer and preloads it into package.preload
+static bool preload_module(lua_State *L, const char *module_name, const char *file_path) {
+    ESP_LOGI(TAG, "Preloading module '%s' from '%s'", module_name, file_path);
+
+    FILE *f = fopen(file_path, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open file for preloading: %s. Reason: %s", file_path, strerror(errno));
+        return false;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *buffer = malloc(fsize + 1);
+    if (!buffer) {
+        ESP_LOGE(TAG, "Failed to allocate memory for module: %s", module_name);
+        fclose(f);
+        return false;
+    }
+
+    fread(buffer, 1, fsize, f);
+    fclose(f);
+    buffer[fsize] = 0;
+
+    // Get package.preload table
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "preload");
+
+    // Load buffer as a Lua chunk
+    if (luaL_loadbuffer(L, buffer, fsize, module_name) == LUA_OK) {
+        // Store the compiled chunk in package.preload[module_name]
+        lua_setfield(L, -2, module_name);
+        ESP_LOGI(TAG, "Successfully preloaded module '%s'", module_name);
+    } else {
+        const char *error = lua_tostring(L, -1);
+        ESP_LOGE(TAG, "Failed to load module buffer for '%s': %s", module_name, error);
+        lua_pop(L, 1); // Pop error message
+        free(buffer);
+        lua_pop(L, 2); // Pop package and preload tables
+        return false;
+    }
+
+    free(buffer);
+    lua_pop(L, 2); // Pop package and preload tables
+    return true;
+}
+
 
 static void gui_task(void *pvParameter);
 void run_lua_demo(void);
@@ -44,12 +93,9 @@ void app_main() {
     
     ESP_LOGI(TAG, "Creating GUI task...");
     
-    // Increase stack size for GUI task when using PSRAM
-    uint32_t stack_size = 4096 * 3;  // 12KB stack for GUI operations
+    uint32_t stack_size = 4096 * 3;
     BaseType_t result = xTaskCreate(gui_task, "gui", stack_size, NULL, 5, NULL);
-    if (result == pdPASS) {
-        ESP_LOGI(TAG, "GUI task created successfully");
-    } else {
+    if (result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create GUI task: %d", result);
     }
 }
@@ -57,89 +103,40 @@ void app_main() {
 #define LV_HOR_RES_MAX 480
 #define LV_VER_RES_MAX 320
 
-// Display buffer configuration for PSRAM
-// Reduce buffer size to work within SPI hardware limits
-// With RGB888 (3 bytes/pixel), we need to be more conservative
 #ifdef CONFIG_SPIRAM
-    #define DISP_BUF_LINES 20  // 20 lines buffer: 480 * 20 * 3 = 28.8KB (safe for chunked transfer)
+    #define DISP_BUF_LINES 20
 #else
-    #define DISP_BUF_LINES 10  // 10 lines buffer for internal RAM fallback
+    #define DISP_BUF_LINES 10
 #endif
 
-// Display buffers will be allocated dynamically in PSRAM
 static lv_color_t *buf1 = NULL;
 static lv_color_t *buf2 = NULL;
-
-// Global Lua state for memory monitoring
 static lua_State* g_lua_state = NULL;
 
 static void gui_task(void *pvParameter) {
-
     (void) pvParameter;
     
     ESP_LOGI(TAG, "GUI task starting execution");
-    ESP_LOGI(TAG, "Task stack remaining: %d bytes", uxTaskGetStackHighWaterMark(NULL));
     
-    // Check available memory before initialization
-    ESP_LOGI(TAG, "Free heap before LVGL init: %d bytes", esp_get_free_heap_size());
-#ifdef CONFIG_SPIRAM
-    ESP_LOGI(TAG, "Free PSRAM: %d bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    ESP_LOGI(TAG, "Total PSRAM: %d bytes", heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
-#endif
-    
-    // Initialize SD card via system bindings
     bool sdcard_mounted = system_bindings_init_sdcard();
 
-    // Check GPIO status
-    check_gpio_status();
-    
-    // Perform hardware-level display test
-    hardware_display_test();
-    
-    ESP_LOGI(TAG, "Initializing LVGL...");
     lv_init();
-    ESP_LOGI(TAG, "LVGL initialization complete");
-
-    /* Initialize SPI or I2C bus used by the drivers */
-    ESP_LOGI(TAG, "Initializing LVGL drivers...");
     lvgl_driver_init();
-    ESP_LOGI(TAG, "LVGL driver initialization complete");
 
-    // Allocate display buffers in PSRAM for better performance
     uint32_t size_in_px = LV_HOR_RES_MAX * DISP_BUF_LINES;
     uint32_t buf_size_bytes = size_in_px * sizeof(lv_color_t);
     
-    ESP_LOGI(TAG, "Allocating display buffers...");
-    ESP_LOGI(TAG, "Buffer size: %d pixels (%d bytes per buffer)", size_in_px, buf_size_bytes);
-
 #ifdef CONFIG_SPIRAM
-    // Try to allocate in PSRAM first
     buf1 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_SPIRAM);
-    if (buf1 == NULL) {
-        ESP_LOGW(TAG, "Failed to allocate buf1 in PSRAM, trying internal RAM");
-        buf1 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_INTERNAL);
-    } else {
-        ESP_LOGI(TAG, "buf1 allocated in PSRAM at: %p", buf1);
-    }
-    
-#ifndef CONFIG_LV_TFT_DISPLAY_MONOCHROME
-    buf2 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_SPIRAM);
-    if (buf2 == NULL) {
-        ESP_LOGW(TAG, "Failed to allocate buf2 in PSRAM, trying internal RAM");
-        buf2 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_INTERNAL);
-    } else {
-        ESP_LOGI(TAG, "buf2 allocated in PSRAM at: %p", buf2);
-    }
+#else
+    buf1 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_INTERNAL);
 #endif
 
-#else
-    // Fallback to internal RAM
-    buf1 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_INTERNAL);
-    ESP_LOGI(TAG, "buf1 allocated in internal RAM at: %p", buf1);
-    
 #ifndef CONFIG_LV_TFT_DISPLAY_MONOCHROME
+#ifdef CONFIG_SPIRAM
+    buf2 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_SPIRAM);
+#else
     buf2 = heap_caps_malloc(buf_size_bytes, MALLOC_CAP_INTERNAL);
-    ESP_LOGI(TAG, "buf2 allocated in internal RAM at: %p", buf2);
 #endif
 #endif
 
@@ -149,63 +146,24 @@ static void gui_task(void *pvParameter) {
     }
 
     lv_disp_draw_buf_t disp_buf;
-    
-    ESP_LOGI(TAG, "Configuring display buffer...");
+    lv_disp_draw_buf_init(&disp_buf, buf1, buf2, size_in_px);
 
-#ifndef CONFIG_LV_TFT_DISPLAY_MONOCHROME
-    if (buf2 == NULL) {
-        ESP_LOGW(TAG, "Failed to allocate buffer 2, using single buffer mode");
-        lv_disp_draw_buf_init(&disp_buf, buf1, NULL, size_in_px);
-        ESP_LOGI(TAG, "Single buffer initialization complete");
-    } else {
-        lv_disp_draw_buf_init(&disp_buf, buf1, buf2, size_in_px);
-        ESP_LOGI(TAG, "Dual buffer initialization complete");
-    }
-#else
-    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, size_in_px);
-    ESP_LOGI(TAG, "Single buffer initialization complete");
-#endif
-
-    ESP_LOGI(TAG, "Registering display driver...");
     lv_disp_drv_t disp_drv;
     lv_disp_drv_init(&disp_drv);
     disp_drv.hor_res = LV_HOR_RES_MAX;
     disp_drv.ver_res = LV_VER_RES_MAX;
     disp_drv.flush_cb = disp_driver_flush;
     disp_drv.draw_buf = &disp_buf;
-    
-    ESP_LOGI(TAG, "Display resolution: %dx%d", disp_drv.hor_res, disp_drv.ver_res);
-    ESP_LOGI(TAG, "flush callback address: %p", disp_drv.flush_cb);
-    
-    lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
-    if (disp != NULL) {
-        ESP_LOGI(TAG, "Display driver registered successfully");
-    } else {
-        ESP_LOGE(TAG, "Failed to register display driver");
-    }
+    lv_disp_drv_register(&disp_drv);
 
 #if CONFIG_LV_TOUCH_CONTROLLER != TOUCH_CONTROLLER_NONE
-    ESP_LOGI(TAG, "Initializing touch driver...");
     lv_indev_drv_t indev_drv;
     lv_indev_drv_init(&indev_drv);
     indev_drv.read_cb = touch_driver_read;
     indev_drv.type = LV_INDEV_TYPE_POINTER;
-    lv_indev_t *indev = lv_indev_drv_register(&indev_drv);
-    if (indev != NULL) {
-        ESP_LOGI(TAG, "Touch driver registered successfully");
-    } else {
-        ESP_LOGE(TAG, "Failed to register touch driver");
-    }
-#else
-    ESP_LOGW(TAG, "Touch not enabled");
+    lv_indev_drv_register(&indev_drv);
 #endif
 
-    ESP_LOGI(TAG, "Starting OOBE Lua application...");
-    
-    // Log memory usage after display setup
-    log_memory_usage("After display setup");
-    
-    // Initialize Lua engine
     ESP_LOGI(TAG, "Initializing Lua engine...");
     g_lua_state = lua_engine_init();
     if (g_lua_state == NULL) {
@@ -217,22 +175,39 @@ static void gui_task(void *pvParameter) {
 
     bool app_loaded = false;
     if (sdcard_mounted) {
-        const char *app_path = "/sdcard/APP/main/main.lua";
-        ESP_LOGI(TAG, "Attempting to load app from SD card: %s", app_path);
-        
-        FILE* f = fopen(app_path, "r");
-        if (f) {
-            fclose(f);
-            ESP_LOGI(TAG, "File '%s' found on SD card.", app_path);
+        // --- Preload all required modules before running main script ---
+        const char* modules_to_preload[][2] = {
+            {"APP.main.gui_guider", "/sdcard/APP/main/gui_guider.lua"},
+            {"APP.main.events_init", "/sdcard/APP/main/events_init.lua"},
+            {"APP.main.setup_scr_main", "/sdcard/APP/main/setup_scr_main.lua"},
+            {"APP.main.setup_scr_WiFi", "/sdcard/APP/main/setup_scr_WiFi.lua"},
+            {"APP.main.setup_scr_wifi_password", "/sdcard/APP/main/setup_scr_wifi_password.lua"},
+            {"APP.main.setup_scr_Bluetooth", "/sdcard/APP/main/setup_scr_Bluetooth.lua"},
+            {"APP.main.setup_scr_Hotspot", "/sdcard/APP/main/setup_scr_Hotspot.lua"},
+            {"APP.main.widgets_init", "/sdcard/APP/main/widgets_init.lua"},
+            {NULL, NULL} // End of list
+        };
+
+        bool all_preloaded = true;
+        for (int i = 0; modules_to_preload[i][0] != NULL; i++) {
+            if (!preload_module(g_lua_state, modules_to_preload[i][0], modules_to_preload[i][1])) {
+                all_preloaded = false;
+                break;
+            }
+        }
+
+        if (all_preloaded) {
+            const char *app_path = "/sdcard/APP/main/main.lua";
+            ESP_LOGI(TAG, "All modules preloaded, executing main script: %s", app_path);
             int lua_result = lua_engine_exec_file(g_lua_state, app_path);
             if (lua_result == 0) {
-                ESP_LOGI(TAG, "Successfully loaded and executed app from SD card.");
+                ESP_LOGI(TAG, "Successfully executed app from SD card.");
                 app_loaded = true;
             } else {
-                ESP_LOGE(TAG, "Error executing Lua script from SD card. Error code: %d. Falling back to OOBE.", lua_result);
+                ESP_LOGE(TAG, "Error executing main Lua script after preloading. Error code: %d.", lua_result);
             }
         } else {
-            ESP_LOGW(TAG, "Application file not found on SD card: %s. Reason: %s", app_path, strerror(errno));
+            ESP_LOGE(TAG, "Failed to preload one or more modules. Falling back to OOBE.");
         }
     } else {
         ESP_LOGW(TAG, "SD card not mounted, skipping app load.");
@@ -268,10 +243,7 @@ static void gui_task(void *pvParameter) {
     }
     
     log_memory_usage("After loading Lua script");
-    ESP_LOGI(TAG, "OOBE application initialization completed");
-    
-    // Log memory usage after initialization
-    log_memory_usage("After LVGL initialization");
+    ESP_LOGI(TAG, "Application initialization completed");
     
     ESP_LOGI(TAG, "Entering main loop");
     uint32_t loop_count = 0;

@@ -1028,4 +1028,75 @@ function main_loop()
 end
 ```
 
+#### 从SD卡加载Lua模块
+
+在从SD卡加载包含多个模块的复杂Lua应用时，我们发现并解决了一个核心问题。以下是相关的配置要求和最终实现方案。
+
+**1. 关键配置：启用长文件名支持 (LFN)**
+
+在默认的ESP-IDF配置中，FAT文件系统可能未开启对长文件名的支持，这会导致Lua的`require`函数无法通过标准路径（如`"APP.main.gui_guider"`）找到文件。
+
+**解决方案**:
+必须在项目配置中启用LFN支持。
+```bash
+# 1. 运行 menuconfig
+idf.py menuconfig
+
+# 2. 导航至
+Component config ---> FAT Filesystem support --->
+
+# 3. 选择长文件名支持模式
+(X) Long filename buffer in heap
+```
+选择“在堆中为长文件名分配缓冲区”(`Long filename buffer in heap`)是最安全的选择，可以避免堆栈溢出风险。
+
+**2. 最终实现方案：预加载机制**
+
+为了彻底解决文件系统在运行时可能出现的任何问题，并提高模块加载性能，系统采用了“预加载”机制。
+
+- **工作原理**: 在`main/main.c`中，系统启动时会首先将所有应用所需的`.lua`模块从SD卡一次性读取到内存中。
+- **注入Lua环境**: 然后，这些从内存中加载的模块会被编译成Lua字节码，并直接存入Lua的`package.preload`表中。
+- **无缝`require`**: 当Lua代码执行`require("some.module")`时，它会首先在`package.preload`中查找，并立即找到已经加载好的模块，无需再次访问文件系统。
+
+**`main.c`中的实现示例**:
+```c
+// 定义需要预加载的模块列表
+const char* modules_to_preload[][2] = {
+    {"APP.main.gui_guider", "/sdcard/APP/main/gui_guider.lua"},
+    {"APP.main.events_init", "/sdcard/APP/main/events_init.lua"},
+    // ... 其他模块
+    {NULL, NULL}
+};
+
+// 循环预加载
+bool all_preloaded = true;
+for (int i = 0; modules_to_preload[i][0] != NULL; i++) {
+    if (!preload_module(g_lua_state, modules_to_preload[i][0], modules_to_preload[i][1])) {
+        all_preloaded = false;
+        break;
+    }
+}
+
+// 如果全部预加载成功，则执行主脚本
+if (all_preloaded) {
+    lua_engine_exec_file(g_lua_state, "/sdcard/APP/main/main.lua");
+}
+```
+这个方案不仅解决了文件加载问题，也为应用启动提供了性能优化。
+
+### API绑定和代码转换注记
+
+在将C代码（尤其是由GUI Guider生成的代码）转换为Lua时，需要注意以下几点：
+
+**1. 缺失的API绑定**
+
+- **`lv_anim` 动画API**: 当前的Lua绑定中**没有**包含对`lv_anim`动画系统的完整支持。因此，所有与`lv_anim_t`、`lv_anim_set_exec_cb`、`lv_anim_start`等相关的C代码都无法直接转换。在`gui_guider.lua`中的`ui_animation`函数是一个空实现占位符，以提醒开发者此限制。
+- **`lv_keyboard_set_textarea`**: 此函数绑定当前也缺失，无法直接将键盘控件与文本区域关联。
+
+**2. C到Lua的转换要点**
+
+- **样式（Styles）**: 在C中，`lv_style_t`是一个需要初始化的结构体。在Lua中，样式可以被看作是一个普通的table。当需要“重置”一个样式时，只需将table中的所有键值对设为`nil`即可。
+- **指针和引用**: C代码中大量使用指针来修改传递的变量（例如`bool * old_scr_del_ref`）。在Lua中，由于数字和布尔值是按值传递的，无法直接模拟这种行为。一种解决方法是使用只有一个字段的table（例如`{ value = true }`）来模拟引用传递。
+- **常量和枚举**: C中的枚举和宏定义（如`LV_SCR_LOAD_ANIM_NONE`）在Lua中被绑定为返回相应值的函数（如`lvgl.SCR_LOAD_ANIM_NONE()`）。
+
 这个技术文档涵盖了LuaRTOS的所有技术细节，从硬件连接到软件架构，从API参考到开发指南，以及完整的故障排除和性能优化指导。开发者可以根据这个文档快速上手并深入开发基于LuaRTOS的项目。

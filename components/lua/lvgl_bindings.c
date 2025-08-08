@@ -934,6 +934,70 @@ int lvgl_keyboard_set_textarea(lua_State* L) {
     return 0;
 }
 
+// Menu widget functions
+int lvgl_menu_create(lua_State* L) {
+    lv_obj_t* parent = check_lvgl_obj(L, 1);
+    lv_obj_t* menu = lv_menu_create(parent);
+    push_lvgl_obj(L, menu);
+    return 1;
+}
+
+int lvgl_menu_page_create(lua_State* L) {
+    lv_obj_t* menu = check_lvgl_obj(L, 1);
+    const char* title = lua_isnoneornil(L, 2) ? NULL : luaL_checkstring(L, 2);
+    lv_obj_t* page = lv_menu_page_create(menu, (char*)title);
+    push_lvgl_obj(L, page);
+    return 1;
+}
+
+int lvgl_menu_cont_create(lua_State* L) {
+    lv_obj_t* page = check_lvgl_obj(L, 1);
+    lv_obj_t* cont = lv_menu_cont_create(page);
+    push_lvgl_obj(L, cont);
+    return 1;
+}
+
+int lvgl_menu_set_sidebar_page(lua_State* L) {
+    lv_obj_t* menu = check_lvgl_obj(L, 1);
+    lv_obj_t* page = check_lvgl_obj(L, 2);
+    lv_menu_set_sidebar_page(menu, page);
+    return 0;
+}
+
+int lvgl_menu_set_load_page_event(lua_State* L) {
+    lv_obj_t* menu = check_lvgl_obj(L, 1);
+    lv_obj_t* obj = check_lvgl_obj(L, 2);
+    lv_obj_t* page = check_lvgl_obj(L, 3);
+    lv_menu_set_load_page_event(menu, obj, page);
+    return 0;
+}
+
+int lvgl_menu_get_sidebar_header(lua_State* L) {
+    lv_obj_t* menu = check_lvgl_obj(L, 1);
+    lv_obj_t* header = lv_menu_get_sidebar_header(menu);
+    push_lvgl_obj(L, header);
+    return 1;
+}
+
+// Other missing functions
+int lvgl_obj_update_layout(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_update_layout(obj);
+    return 0;
+}
+
+int lvgl_obj_move_foreground(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_move_foreground(obj);
+    return 0;
+}
+
+int lvgl_obj_move_background(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_obj_move_background(obj);
+    return 0;
+}
+
 // Msgbox helper functions
 int lvgl_msgbox_get_btns(lua_State* L) {
     lv_obj_t* msgbox = check_lvgl_obj(L, 1);
@@ -1114,6 +1178,20 @@ static const luaL_Reg lvgl_functions[] = {
     {"textarea_set_password_mode", lvgl_textarea_set_password_mode},
     {"keyboard_create", lvgl_keyboard_create},
     {"keyboard_set_textarea", lvgl_keyboard_set_textarea},
+
+    // Menu functions
+    {"menu_create", lvgl_menu_create},
+    {"menu_page_create", lvgl_menu_page_create},
+    {"menu_cont_create", lvgl_menu_cont_create},
+    {"menu_set_sidebar_page", lvgl_menu_set_sidebar_page},
+    {"menu_set_load_page_event", lvgl_menu_set_load_page_event},
+    {"menu_get_sidebar_header", lvgl_menu_get_sidebar_header},
+
+    // Other functions
+    {"obj_update_layout", lvgl_obj_update_layout},
+    {"obj_move_foreground", lvgl_obj_move_foreground},
+    {"obj_move_background", lvgl_obj_move_background},
+
     {"obj_add_flag", lvgl_obj_add_flag},
     {"obj_clear_flag", lvgl_obj_clear_flag},
     {"obj_has_state", lvgl_obj_has_state},

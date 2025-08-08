@@ -62,6 +62,7 @@ int lvgl_textarea_create(lua_State* L);
 int lvgl_textarea_set_text(lua_State* L);
 int lvgl_textarea_get_text(lua_State* L);
 int lvgl_keyboard_create(lua_State* L);
+int lvgl_keyboard_set_textarea(lua_State* L);
 int lvgl_textarea_set_accepted_chars(lua_State* L);
 int lvgl_obj_add_flag(lua_State* L);
 int lvgl_obj_clear_flag(lua_State* L);
@@ -69,6 +70,23 @@ int lvgl_anim_set_time(lua_State* L);
 int lvgl_anim_set_values(lua_State* L);
 int lvgl_anim_set_exec_cb(lua_State* L);
 int lvgl_anim_start(lua_State* L);
+
+// Menu functions
+int lvgl_menu_create(lua_State* L);
+int lvgl_menu_page_create(lua_State* L);
+int lvgl_menu_cont_create(lua_State* L);
+int lvgl_menu_set_sidebar_page(lua_State* L);
+int lvgl_menu_set_load_page_event(lua_State* L);
+int lvgl_menu_get_sidebar_header(lua_State* L);
+
+// Carousel functions
+int lvgl_carousel_create(lua_State* L);
+int lvgl_carousel_set_anim_time(lua_State* L);
+
+// Other missing functions
+int lvgl_obj_update_layout(lua_State* L);
+int lvgl_obj_move_foreground(lua_State* L);
+int lvgl_obj_move_background(lua_State* L);
 
 // Style functions
 int lvgl_obj_set_style_bg_opa(lua_State* L);

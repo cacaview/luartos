@@ -496,6 +496,7 @@ static const char *searchpath (lua_State *L, const char *name,
   pathname = luaL_buffaddr(&buff);  /* writable list of file names */
   endpathname = pathname + luaL_bufflen(&buff) - 1;
   while ((filename = getnextfilename(&pathname, endpathname)) != NULL) {
+    printf("LUA_SEARCH: Trying to open '%s'\n", filename);
     if (readable(filename))  /* does file exist and is readable? */
       return lua_pushstring(L, filename);  /* save and return name */
   }
@@ -764,4 +765,3 @@ LUAMOD_API int luaopen_package (lua_State *L) {
   lua_pop(L, 1);  /* pop global table */
   return 1;  /* return 'package' table */
 }
-
