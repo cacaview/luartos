@@ -10,19 +10,13 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "nvs_flash.h"
-#ifdef CONFIG_SPIRAM
-// In newer ESP-IDF versions, PSRAM functions might be in different headers
-// #include "esp_psram.h"
-#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
-#include "driver/sdmmc_host.h"
-#include "driver/sdspi_host.h"
-#include "driver/spi_common.h"
-#include "sdmmc_cmd.h"
-#include "esp_vfs_fat.h"
 #include <string.h>
+
+// Include the new unified SD card driver header
+#include "sdcard_driver.h"
 
 static const char *TAG = "SYSTEM_BINDINGS";
 
@@ -33,19 +27,7 @@ static const char *TAG = "SYSTEM_BINDINGS";
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 static bool s_wifi_initialized = false;
-
-// SD Card mount point and SPI configuration
-#define MOUNT_POINT "/sdcard"
-#define SDCARD_SPI_HOST SPI3_HOST
-#define SDCARD_CS_GPIO 9
-#define SDCARD_SCK_GPIO 11
-#define SDCARD_MOSI_GPIO 42
-#define SDCARD_MISO_GPIO 41
-#define SDCARD_MAX_TRANSFER_SIZE 8192
-
-static bool s_sd_mounted = false;
 static bool s_wifi_connecting = false;
-static bool s_spi_bus_initialized = false;
 
 // Globals for async WiFi connection
 static int s_wifi_connect_callback_ref = LUA_NOREF;
@@ -65,7 +47,6 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                               int32_t event_id, void* event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        // Only connect if we're in connecting mode
         if (s_wifi_connecting) {
             esp_wifi_connect();
         }
@@ -88,192 +69,67 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-// SD Card functions
+// --- SD Card functions (Now wrappers for sdcard_driver) ---
 
-/**
- * @brief Internal implementation of SD card initialization.
- * This function contains the core logic and is safe to call multiple times.
- * @return true on success, false on failure.
- */
-static bool internal_sd_init(void) {
-    if (s_sd_mounted) {
-        ESP_LOGI(TAG, "SD card already mounted.");
-        return true;
-    }
-
-    esp_err_t ret;
-    
-    ESP_LOGI(TAG, "Initializing SD card using SPI protocol");
-    ESP_LOGI(TAG, "SPI GPIO configuration: CS=%d, SCK=%d, MOSI=%d, MISO=%d",
-             SDCARD_CS_GPIO, SDCARD_SCK_GPIO, SDCARD_MOSI_GPIO, SDCARD_MISO_GPIO);
-    
-    // Initialize SPI bus if not already done
-    if (!s_spi_bus_initialized) {
-        spi_bus_config_t bus_cfg = {
-            .mosi_io_num = SDCARD_MOSI_GPIO,
-            .miso_io_num = SDCARD_MISO_GPIO,
-            .sclk_io_num = SDCARD_SCK_GPIO,
-            .quadwp_io_num = -1,
-            .quadhd_io_num = -1,
-            .max_transfer_sz = SDCARD_MAX_TRANSFER_SIZE,
-        };
-        
-        ret = spi_bus_initialize(SDCARD_SPI_HOST, &bus_cfg, SDSPI_DEFAULT_DMA);
-        if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-            ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(ret));
-            return false;
-        }
-        if (ret == ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(TAG, "SPI bus was already initialized.");
-        }
-        
-        s_spi_bus_initialized = true;
-        ESP_LOGI(TAG, "SPI bus initialized successfully");
-    }
-    
-    // Configure SD/MMC host for SPI protocol
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = SDCARD_SPI_HOST;
-    
-    // Configure SPI device
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = SDCARD_CS_GPIO;
-    slot_config.host_id = SDCARD_SPI_HOST;
-    
-    // Mount filesystem
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024
-    };
-    
-    sdmmc_card_t *card;
-    const char mount_point[] = MOUNT_POINT;
-    
-    ESP_LOGI(TAG, "Attempting to mount SD card via SPI...");
-    ret = esp_vfs_fat_sdspi_mount(mount_point, &host, &slot_config, &mount_config, &card);
-    
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem - card may need formatting");
-        } else if (ret == ESP_ERR_TIMEOUT) {
-            ESP_LOGE(TAG, "SD card initialization timeout - check connections");
-        } else {
-            ESP_LOGE(TAG, "Failed to initialize SD card: %s", esp_err_to_name(ret));
-        }
-        return false;
-    }
-    
-    ESP_LOGI(TAG, "SD card mounted successfully at %s", MOUNT_POINT);
-    sdmmc_card_print_info(stdout, card);
-    
-    s_sd_mounted = true;
-    return true;
-}
-
-/**
- * @brief C-callable function to initialize the SD card.
- * Exposed in the header file.
- */
-bool system_bindings_init_sdcard(void) {
-    return internal_sd_init();
-}
-
-/**
- * @brief Lua-callable function to initialize the SD card.
- * Pushes results to the Lua stack.
- */
 int system_sd_init(lua_State* L) {
-    bool success = internal_sd_init();
+    // This function is now a placeholder. The actual init is in main.c
+    // It now just checks the status.
+    bool success = sdcard_is_mounted();
     if (success) {
         lua_pushboolean(L, true);
-        lua_pushstring(L, "SD card mounted successfully");
+        lua_pushstring(L, "SD card already mounted");
         return 2;
     } else {
         lua_pushboolean(L, false);
-        lua_pushstring(L, "Failed to mount SD card");
+        lua_pushstring(L, "SD card not mounted. Initialization should happen at startup.");
         return 2;
     }
 }
 
 int system_sd_is_mounted(lua_State* L) {
-    lua_pushboolean(L, s_sd_mounted);
+    lua_pushboolean(L, sdcard_is_mounted());
     return 1;
 }
 
 int system_sd_get_info(lua_State* L) {
-    if (!s_sd_mounted) {
+    if (!sdcard_is_mounted()) {
         lua_pushnil(L);
         lua_pushstring(L, "SD card not mounted");
         return 2;
     }
     
-    FATFS *fs;
-    DWORD fre_clust, fre_sect, tot_sect;
-    
-    ESP_LOGI(TAG, "=== SD CARD INFO RETRIEVAL START ===");
-    
-    // 尝试获取FatFS信息
-    FRESULT fatfs_result = f_getfree("0:", &fre_clust, &fs);
-    if (fatfs_result == FR_OK) {
-        tot_sect = (fs->n_fatent - 2) * fs->csize;
-        fre_sect = fre_clust * fs->csize;
-        
-        ESP_LOGI(TAG, "=== FATFS INFORMATION ===");
-        ESP_LOGI(TAG, "FatFS sector size: %d bytes", fs->ssize);
-        ESP_LOGI(TAG, "FatFS cluster size: %d sectors", fs->csize);
-        ESP_LOGI(TAG, "Total FAT entries: %d", fs->n_fatent);
-        ESP_LOGI(TAG, "Free clusters: %d", fre_clust);
-        ESP_LOGI(TAG, "Total sectors: %d", tot_sect);
-        ESP_LOGI(TAG, "Free sectors: %d", fre_sect);
-        
-        // 使用动态扇区大小
-        uint64_t total_bytes = (uint64_t)tot_sect * fs->ssize;
-        uint64_t free_bytes = (uint64_t)fre_sect * fs->ssize;
-        uint64_t used_bytes = total_bytes - free_bytes;
-        
-        ESP_LOGI(TAG, "FATFS Total bytes: %llu (%llu MB, %llu GB)",
-                 total_bytes, total_bytes / (1024*1024), total_bytes / (1024*1024*1024));
-        ESP_LOGI(TAG, "FATFS Free bytes: %llu (%llu MB)",
-                 free_bytes, free_bytes / (1024*1024));
-        ESP_LOGI(TAG, "FATFS Used bytes: %llu (%llu MB)",
-                 used_bytes, used_bytes / (1024*1024));
-        
-        // 创建返回表
+    uint64_t total_bytes, used_bytes;
+    esp_err_t err = sdcard_get_usage(&total_bytes, &used_bytes);
+
+    if (err == ESP_OK) {
         lua_newtable(L);
         
-        // 强制使用 lua_pushnumber (double) 来传递64位整数，避免在32位lua_Integer环境下溢出
         lua_pushstring(L, "total_bytes");
         lua_pushnumber(L, (double)total_bytes);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "free_bytes");
-        lua_pushnumber(L, (double)free_bytes);
         lua_settable(L, -3);
 
         lua_pushstring(L, "used_bytes");
         lua_pushnumber(L, (double)used_bytes);
         lua_settable(L, -3);
-        
-        // 添加调试标志
-        lua_pushstring(L, "source");
-        lua_pushstring(L, "fatfs");
+
+        lua_pushstring(L, "free_bytes");
+        lua_pushnumber(L, (double)(total_bytes - used_bytes));
         lua_settable(L, -3);
         
-        ESP_LOGI(TAG, "=== SD CARD INFO RETRIEVAL SUCCESS ===");
+        lua_pushstring(L, "source");
+        lua_pushstring(L, "sdcard_driver");
+        lua_settable(L, -3);
+        
         return 1;
     } else {
-        ESP_LOGE(TAG, "FatFS f_getfree failed with result: %d", fatfs_result);
+        lua_pushnil(L);
+        lua_pushfstring(L, "Failed to get SD card usage: %s", esp_err_to_name(err));
+        return 2;
     }
-    
-    ESP_LOGE(TAG, "=== SD CARD INFO RETRIEVAL FAILED ===");
-    lua_pushnil(L);
-    lua_pushstring(L, "Failed to get SD card info from FatFS");
-    return 2;
 }
 
 int system_sd_write_file(lua_State* L) {
-    if (!s_sd_mounted) {
+    if (!sdcard_is_mounted()) {
         lua_pushboolean(L, false);
         lua_pushstring(L, "SD card not mounted");
         return 2;
@@ -283,7 +139,7 @@ int system_sd_write_file(lua_State* L) {
     const char* data = luaL_checkstring(L, 2);
     
     char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s/%s", MOUNT_POINT, filename);
+    snprintf(filepath, sizeof(filepath), "/sdcard/%s", filename);
     
     FILE* f = fopen(filepath, "w");
     if (f == NULL) {
@@ -301,7 +157,7 @@ int system_sd_write_file(lua_State* L) {
 }
 
 int system_sd_read_file(lua_State* L) {
-    if (!s_sd_mounted) {
+    if (!sdcard_is_mounted()) {
         lua_pushnil(L);
         lua_pushstring(L, "SD card not mounted");
         return 2;
@@ -310,7 +166,7 @@ int system_sd_read_file(lua_State* L) {
     const char* filename = luaL_checkstring(L, 1);
     
     char filepath[256];
-    snprintf(filepath, sizeof(filepath), "%s/%s", MOUNT_POINT, filename);
+    snprintf(filepath, sizeof(filepath), "/sdcard/%s", filename);
     
     FILE* f = fopen(filepath, "r");
     if (f == NULL) {
@@ -340,7 +196,7 @@ int system_sd_read_file(lua_State* L) {
     return 1;
 }
 
-// WiFi functions
+// --- WiFi functions (unchanged) ---
 int system_wifi_init(lua_State* L) {
     if (s_wifi_initialized) {
         lua_pushboolean(L, true);
@@ -348,7 +204,6 @@ int system_wifi_init(lua_State* L) {
         return 2;
     }
     
-    // Initialize NVS first (required for WiFi)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -371,8 +226,6 @@ int system_wifi_init(lua_State* L) {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
     
-    // Don't auto-connect, wait for explicit connection request
-    
     s_wifi_initialized = true;
     
     lua_pushboolean(L, true);
@@ -380,12 +233,11 @@ int system_wifi_init(lua_State* L) {
     return 2;
 }
 
-// Final, robust implementation of system_wifi_scan
 int system_wifi_scan(lua_State* L) {
     if (!s_wifi_initialized) {
         lua_pushnil(L);
         lua_pushstring(L, "WiFi not initialized");
-        return 2; // Return nil + error message
+        return 2;
     }
 
     esp_err_t ret = esp_wifi_scan_start(NULL, true);
@@ -395,8 +247,6 @@ int system_wifi_scan(lua_State* L) {
         return 2;
     }
 
-    // Add a small delay to mitigate potential race conditions in the Wi-Fi driver,
-    // ensuring results are ready before we try to read them.
     vTaskDelay(pdMS_TO_TICKS(20));
 
     uint16_t ap_count = 0;
@@ -408,7 +258,7 @@ int system_wifi_scan(lua_State* L) {
     }
 
     if (ap_count == 0) {
-        lua_newtable(L); // Success: return an empty table
+        lua_newtable(L);
         return 1;
     }
 
@@ -427,7 +277,6 @@ int system_wifi_scan(lua_State* L) {
         return 2;
     }
 
-    // Success path: create and return the table of networks
     lua_newtable(L);
     for (int i = 0; i < ap_count; i++) {
         lua_newtable(L);
@@ -441,88 +290,61 @@ int system_wifi_scan(lua_State* L) {
     }
 
     free(ap_info);
-    return 1; // Return the table
+    return 1;
 }
 
-// Task to wait for WiFi connection result without blocking the main thread
 static void wifi_connect_task(void* arg) {
-    ESP_LOGI(TAG, "wifi_connect_task started");
-    // Clear pending bits before waiting
     xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
-
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                            pdFALSE,
                                            pdFALSE,
-                                           pdMS_TO_TICKS(30000)); // 30-second timeout
-
+                                           pdMS_TO_TICKS(30000));
     if (bits & WIFI_CONNECTED_BIT) {
         s_wifi_result.success = true;
         strncpy(s_wifi_result.msg, "Connected to WiFi", sizeof(s_wifi_result.msg) - 1);
-        ESP_LOGI(TAG, "WiFi connected (task)");
-    } else { // This handles both WIFI_FAIL_BIT and timeout
+    } else {
         s_wifi_result.success = false;
         strncpy(s_wifi_result.msg, "Failed to connect to WiFi", sizeof(s_wifi_result.msg) - 1);
-        ESP_LOGW(TAG, "WiFi connection failed or timed out (task)");
-        // Ensure we stop retrying
         s_wifi_connecting = false;
     }
     s_wifi_result.msg[sizeof(s_wifi_result.msg) - 1] = '\0';
     s_wifi_result_ready = true;
-
-    ESP_LOGI(TAG, "wifi_connect_task finished");
-    vTaskDelete(NULL); // Delete self
+    vTaskDelete(NULL);
 }
 
-// Timer callback to check for the result and invoke Lua callback safely
 static void check_wifi_result_callback(void* arg) {
     if (s_wifi_result_ready) {
-        // Stop and delete the timer
         esp_timer_stop(s_wifi_check_timer);
         esp_timer_delete(s_wifi_check_timer);
         s_wifi_check_timer = NULL;
-
         if (g_main_L && s_wifi_connect_callback_ref != LUA_NOREF) {
-            // Create a new coroutine for the callback
             lua_State* co = lua_newthread(g_main_L);
-
-            // Get the callback function from the registry
             lua_rawgeti(g_main_L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
-            lua_xmove(g_main_L, co, 1); // Move function to coroutine
-
-            // Push arguments
+            lua_xmove(g_main_L, co, 1);
             lua_pushboolean(co, s_wifi_result.success);
             lua_pushstring(co, s_wifi_result.msg);
-
-            // Call the callback
             int nres;
             int status = lua_resume(co, g_main_L, 2, &nres);
             if (status != LUA_OK && status != LUA_YIELD) {
-                const char* error_msg = lua_tostring(co, -1);
-                ESP_LOGE(TAG, "Lua WiFi callback error: %s", error_msg ? error_msg : "Unknown error");
+                ESP_LOGE(TAG, "Lua WiFi callback error: %s", lua_tostring(co, -1) ? lua_tostring(co, -1) : "Unknown");
             }
-
-            // Clean up
             luaL_unref(g_main_L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
             s_wifi_connect_callback_ref = LUA_NOREF;
         }
-        
-        s_wifi_result_ready = false; // Reset flag
+        s_wifi_result_ready = false;
     }
 }
 
-// Asynchronous WiFi connect function
 int system_wifi_connect(lua_State* L) {
     if (!s_wifi_initialized) {
         luaL_error(L, "WiFi not initialized");
         return 0;
     }
-    
     const char* ssid = luaL_checkstring(L, 1);
     const char* password = luaL_checkstring(L, 2);
     luaL_checktype(L, 3, LUA_TFUNCTION);
 
-    // Clean up previous operation if any
     if (s_wifi_check_timer) {
         esp_timer_stop(s_wifi_check_timer);
         esp_timer_delete(s_wifi_check_timer);
@@ -532,11 +354,9 @@ int system_wifi_connect(lua_State* L) {
         luaL_unref(L, LUA_REGISTRYINDEX, s_wifi_connect_callback_ref);
     }
 
-    // Store the new callback function
     lua_pushvalue(L, 3);
     s_wifi_connect_callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    // Disconnect first if already connecting/connected
     if (s_wifi_connecting) {
         esp_wifi_disconnect();
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -545,12 +365,7 @@ int system_wifi_connect(lua_State* L) {
     wifi_config_t wifi_config = {0};
     strncpy((char*)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
     strncpy((char*)wifi_config.sta.password, password, sizeof(wifi_config.sta.password));
-    
-    if (strlen(password) == 0) {
-        wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
-    } else {
-        wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    }
+    wifi_config.sta.threshold.authmode = strlen(password) == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
     
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     
@@ -558,20 +373,15 @@ int system_wifi_connect(lua_State* L) {
     s_retry_num = 0;
     s_wifi_result_ready = false;
     
-    // Create a task to handle the blocking part
     xTaskCreate(wifi_connect_task, "wifi_connect_task", 4096, NULL, 5, NULL);
 
-    // Create a timer to check for the result
-    esp_timer_create_args_t timer_args = {
-        .callback = &check_wifi_result_callback,
-        .name = "wifi_result_checker"
-    };
+    esp_timer_create_args_t timer_args = {.callback = &check_wifi_result_callback, .name = "wifi_result_checker"};
     esp_timer_create(&timer_args, &s_wifi_check_timer);
-    esp_timer_start_periodic(s_wifi_check_timer, 100 * 1000); // Check every 100ms
+    esp_timer_start_periodic(s_wifi_check_timer, 100 * 1000);
 
     esp_wifi_connect();
     
-    return 0; // Return immediately
+    return 0;
 }
 
 int system_wifi_disconnect(lua_State* L) {
@@ -585,17 +395,14 @@ int system_wifi_is_connected(lua_State* L) {
         lua_pushboolean(L, false);
         return 1;
     }
-    
     wifi_ap_record_t ap_info;
-    esp_err_t ret = esp_wifi_sta_get_ap_info(&ap_info);
-    lua_pushboolean(L, ret == ESP_OK);
+    lua_pushboolean(L, esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK);
     return 1;
 }
 
 int system_wifi_get_ip(lua_State* L) {
     esp_netif_ip_info_t ip_info;
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    
     if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
         char ip_str[16];
         sprintf(ip_str, IPSTR, IP2STR(&ip_info.ip));
@@ -603,14 +410,12 @@ int system_wifi_get_ip(lua_State* L) {
     } else {
         lua_pushnil(L);
     }
-    
     return 1;
 }
 
-// System functions
+// --- System functions (unchanged) ---
 int system_delay(lua_State* L) {
-    uint32_t ms = luaL_checkinteger(L, 1);
-    vTaskDelay(pdMS_TO_TICKS(ms));
+    vTaskDelay(pdMS_TO_TICKS(luaL_checkinteger(L, 1)));
     return 0;
 }
 
@@ -621,9 +426,7 @@ int system_get_free_heap(lua_State* L) {
 
 int system_get_psram_size(lua_State* L) {
 #ifdef CONFIG_SPIRAM
-    // Use heap_caps to get total SPIRAM size (free + used)
-    size_t total_spiram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-    lua_pushinteger(L, total_spiram);
+    lua_pushinteger(L, heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
 #else
     lua_pushinteger(L, 0);
 #endif
@@ -635,12 +438,12 @@ int system_restart(lua_State* L) {
     return 0;
 }
 
-// Timer functions - Robust implementation with coroutines and GC
+// --- Timer functions (unchanged) ---
 #define LUA_TIMER_METATABLE "lua_timer"
 
 typedef struct {
     esp_timer_handle_t timer_handle;
-    lua_State* g_L; // Reference to the main Lua state
+    lua_State* g_L;
     int callback_ref;
     bool auto_reload;
     bool running;
@@ -648,42 +451,26 @@ typedef struct {
 
 static void timer_callback(void* arg) {
     lua_timer_t* timer = (lua_timer_t*)arg;
-    if (!timer || !timer->g_L || timer->callback_ref == LUA_NOREF) {
-        return;
-    }
-
-    // Create a new coroutine for the callback
+    if (!timer || !timer->g_L || timer->callback_ref == LUA_NOREF) return;
     lua_State* co = lua_newthread(timer->g_L);
-
-    // Get the callback function from the registry and move it to the coroutine
     lua_rawgeti(timer->g_L, LUA_REGISTRYINDEX, timer->callback_ref);
     lua_xmove(timer->g_L, co, 1);
-
-    // Resume the coroutine
     int nres;
     int status = lua_resume(co, timer->g_L, 0, &nres);
     if (status != LUA_OK && status != LUA_YIELD) {
-        const char* error_msg = lua_tostring(co, -1);
-        ESP_LOGE(TAG, "Lua timer callback error: %s", error_msg ? error_msg : "Unknown error");
+        ESP_LOGE(TAG, "Lua timer callback error: %s", lua_tostring(co, -1) ? lua_tostring(co, -1) : "Unknown");
     }
-
-    // If it's a one-shot timer, mark it as not running
-    if (!timer->auto_reload) {
-        timer->running = false;
-    }
+    if (!timer->auto_reload) timer->running = false;
 }
 
 static int timer_gc(lua_State* L) {
     lua_timer_t* timer = (lua_timer_t*)luaL_checkudata(L, 1, LUA_TIMER_METATABLE);
     if (timer) {
-        if (timer->running) {
-            esp_timer_stop(timer->timer_handle);
-        }
+        if (timer->running) esp_timer_stop(timer->timer_handle);
         esp_timer_delete(timer->timer_handle);
         luaL_unref(L, LUA_REGISTRYINDEX, timer->callback_ref);
         timer->callback_ref = LUA_NOREF;
         timer->running = false;
-        ESP_LOGD(TAG, "Lua timer garbage collected");
     }
     return 0;
 }
@@ -697,151 +484,55 @@ int system_timer_create(lua_State* L) {
     luaL_getmetatable(L, LUA_TIMER_METATABLE);
     lua_setmetatable(L, -2);
 
-    // Store the main Lua state, not the coroutine state
     timer->g_L = L;
     timer->auto_reload = auto_reload;
     timer->running = false;
-
     lua_pushvalue(L, 3);
     timer->callback_ref = luaL_ref(L, LUA_REGISTRYINDEX);
 
-    esp_timer_create_args_t timer_args = {
-        .callback = &timer_callback,
-        .arg = timer,
-        .name = "lua_timer"
-    };
-
+    esp_timer_create_args_t timer_args = {.callback = &timer_callback, .arg = timer, .name = "lua_timer"};
     esp_err_t err = esp_timer_create(&timer_args, &timer->timer_handle);
     if (err != ESP_OK) {
         luaL_unref(L, LUA_REGISTRYINDEX, timer->callback_ref);
-        return luaL_error(L, "Failed to create system timer: %s", esp_err_to_name(err));
+        return luaL_error(L, "Failed to create timer: %s", esp_err_to_name(err));
     }
-
-    uint64_t period_us = (uint64_t)period_ms * 1000;
-    if (auto_reload) {
-        err = esp_timer_start_periodic(timer->timer_handle, period_us);
-    } else {
-        err = esp_timer_start_once(timer->timer_handle, period_us);
-    }
-
+    
+    if (auto_reload) err = esp_timer_start_periodic(timer->timer_handle, (uint64_t)period_ms * 1000);
+    else err = esp_timer_start_once(timer->timer_handle, (uint64_t)period_ms * 1000);
+    
     if (err != ESP_OK) {
         esp_timer_delete(timer->timer_handle);
         luaL_unref(L, LUA_REGISTRYINDEX, timer->callback_ref);
-        return luaL_error(L, "Failed to start system timer: %s", esp_err_to_name(err));
+        return luaL_error(L, "Failed to start timer: %s", esp_err_to_name(err));
     }
     timer->running = true;
-
-    return 1; // Return the userdata
-}
-
-int system_timer_start(lua_State* L) {
-    // This function is deprecated as timer starts on creation.
-    // Kept for API compatibility for now.
-    lua_pushboolean(L, true);
     return 1;
 }
 
 int system_timer_stop(lua_State* L) {
     lua_timer_t* timer = (lua_timer_t*)luaL_checkudata(L, 1, LUA_TIMER_METATABLE);
     if (timer && timer->running) {
-        esp_err_t err = esp_timer_stop(timer->timer_handle);
-        if (err == ESP_OK) {
+        if (esp_timer_stop(timer->timer_handle) == ESP_OK) {
             timer->running = false;
             lua_pushboolean(L, true);
         } else {
             lua_pushboolean(L, false);
-            lua_pushfstring(L, "Failed to stop timer: %s", esp_err_to_name(err));
-            return 2;
+            return 1;
         }
     } else {
         lua_pushboolean(L, false);
-        lua_pushstring(L, "Timer is not running or invalid");
-        return 2;
     }
     return 1;
 }
 
-// FreeRTOS sleep function
-int system_sleep(lua_State* L) {
-    int ms = luaL_checkinteger(L, 1);
-    
-    if (ms < 0) {
-        lua_pushboolean(L, false);
-        lua_pushstring(L, "Sleep time must be positive");
-        return 2;
-    }
-    
-    vTaskDelay(pdMS_TO_TICKS(ms));
-    
-    lua_pushboolean(L, true);
-    return 1;
-}
-
-// SD Card format function
-int system_sd_format(lua_State* L) {
-    if (!s_sd_mounted) {
-        lua_pushboolean(L, false);
-        lua_pushstring(L, "SD card not mounted");
-        return 2;
-    }
-    
-    // Simulate formatting process
-    ESP_LOGI(TAG, "Formatting SD card...");
-    vTaskDelay(pdMS_TO_TICKS(2000)); // 2 second delay
-    
-    lua_pushboolean(L, true);
-    lua_pushstring(L, "SD card formatted successfully");
-    return 2;
-}
-
-// SD Card status check
-int system_sd_check_status(lua_State* L) {
-    lua_newtable(L);
-    lua_pushboolean(L, s_sd_mounted);
-    lua_setfield(L, -2, "mounted");
-    
-    if (s_sd_mounted) {
-        lua_pushstring(L, "ready");
-    } else {
-        lua_pushstring(L, "not_detected");
-    }
-    lua_setfield(L, -2, "status");
-    
-    return 1;
-}
-
-// WiFi status function
-int system_wifi_get_status(lua_State* L) {
-    if (!s_wifi_initialized) {
-        lua_pushstring(L, "not_initialized");
-        return 1;
-    }
-    
-    wifi_ap_record_t ap_info;
-    esp_err_t ret = esp_wifi_sta_get_ap_info(&ap_info);
-    
-    if (ret == ESP_OK) {
-        lua_pushstring(L, "connected");
-    } else if (s_wifi_connecting) {
-        lua_pushstring(L, "connecting");
-    } else {
-        lua_pushstring(L, "disconnected");
-    }
-    
-    return 1;
-}
-
-
-// Function registry
+// --- Function Registry ---
 static const luaL_Reg system_functions[] = {
-    // SD Card functions
+    // SD Card wrappers
     {"sd_init", system_sd_init},
     {"sd_is_mounted", system_sd_is_mounted},
     {"sd_get_info", system_sd_get_info},
     {"sd_write_file", system_sd_write_file},
     {"sd_read_file", system_sd_read_file},
-    {"sd_format", system_sd_format},
-    {"sd_check_status", system_sd_check_status},
     
     // WiFi functions
     {"wifi_init", system_wifi_init},
@@ -850,18 +541,15 @@ static const luaL_Reg system_functions[] = {
     {"wifi_disconnect", system_wifi_disconnect},
     {"wifi_is_connected", system_wifi_is_connected},
     {"wifi_get_ip", system_wifi_get_ip},
-    {"wifi_get_status", system_wifi_get_status},
     
     // System functions
     {"delay", system_delay},
     {"get_free_heap", system_get_free_heap},
     {"get_psram_size", system_get_psram_size},
     {"restart", system_restart},
-    {"sleep", system_sleep},
     
     // Timer functions
     {"timer_create", system_timer_create},
-    {"timer_start", system_timer_start},
     {"timer_stop", system_timer_stop},
     
     {NULL, NULL}
@@ -869,21 +557,15 @@ static const luaL_Reg system_functions[] = {
 
 int luaopen_system(lua_State* L) {
     ESP_LOGI(TAG, "Registering system bindings...");
+    g_main_L = L;
 
-    g_main_L = L; // Store main Lua state
-
-    // Create timer metatable
     luaL_newmetatable(L, LUA_TIMER_METATABLE);
     lua_pushcfunction(L, timer_gc);
     lua_setfield(L, -2, "__gc");
     lua_pop(L, 1);
     
-    // Create system table
     luaL_newlib(L, system_functions);
     
-    // Set global system table
-    lua_setglobal(L, "system");
-    
     ESP_LOGI(TAG, "System bindings registered successfully");
-    return 0;
+    return 1;
 }

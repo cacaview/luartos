@@ -136,8 +136,16 @@ int lvgl_obj_set_style_text_color(lua_State* L) {
 
 int lvgl_obj_set_style_text_font(lua_State* L) {
     lv_obj_t* obj = check_lvgl_obj(L, 1);
-    // For simplicity, we'll use a pointer passed as light userdata
+    
+    // Add robust checking for the font argument
+    if (!lua_islightuserdata(L, 2)) {
+        return luaL_argerror(L, 2, "expected font (lightuserdata)");
+    }
     const lv_font_t* font = (const lv_font_t*)lua_touserdata(L, 2);
+    if (font == NULL) {
+        return luaL_argerror(L, 2, "font cannot be nil");
+    }
+    
     lv_style_selector_t selector = luaL_checkinteger(L, 3);
     
     lv_obj_set_style_text_font(obj, font, selector);
@@ -510,6 +518,24 @@ int lvgl_obj_set_style_shadow_width(lua_State* L) {
     return 0;
 }
 
+int lvgl_obj_set_style_shadow_opa(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_opa_t opa = luaL_checkinteger(L, 2);
+    lv_style_selector_t selector = luaL_checkinteger(L, 3);
+    
+    lv_obj_set_style_shadow_opa(obj, opa, selector);
+    return 0;
+}
+
+int lvgl_obj_set_style_shadow_ofs_y(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_coord_t offset = luaL_checkinteger(L, 2);
+    lv_style_selector_t selector = luaL_checkinteger(L, 3);
+    
+    lv_obj_set_style_shadow_ofs_y(obj, offset, selector);
+    return 0;
+}
+
 int lvgl_obj_set_style_text_opa(lua_State* L) {
     lv_obj_t* obj = check_lvgl_obj(L, 1);
     lv_opa_t opa = luaL_checkinteger(L, 2);
@@ -687,176 +713,6 @@ int lvgl_color_black(lua_State* L) {
 int lvgl_refr_now(lua_State* L) {
     lv_refr_now(NULL);
     return 0;
-}
-
-// Part constants
-int lvgl_part_main(lua_State* L) {
-    lua_pushinteger(L, LV_PART_MAIN);
-    return 1;
-}
-
-int lvgl_part_indicator(lua_State* L) {
-    lua_pushinteger(L, LV_PART_INDICATOR);
-    return 1;
-}
-
-int lvgl_part_knob(lua_State* L) {
-    lua_pushinteger(L, LV_PART_KNOB);
-    return 1;
-}
-
-// State constants
-int lvgl_state_default(lua_State* L) {
-    lua_pushinteger(L, LV_STATE_DEFAULT);
-    return 1;
-}
-
-int lvgl_state_checked(lua_State* L) {
-    lua_pushinteger(L, LV_STATE_CHECKED);
-    return 1;
-}
-
-// Border constants
-int lvgl_border_side_full(lua_State* L) {
-    lua_pushinteger(L, LV_BORDER_SIDE_FULL);
-    return 1;
-}
-
-// Text alignment constants
-int lvgl_text_align_left(lua_State* L) {
-    lua_pushinteger(L, LV_TEXT_ALIGN_LEFT);
-    return 1;
-}
-
-int lvgl_text_align_center(lua_State* L) {
-    lua_pushinteger(L, LV_TEXT_ALIGN_CENTER);
-    return 1;
-}
-
-int lvgl_text_align_right(lua_State* L) {
-    lua_pushinteger(L, LV_TEXT_ALIGN_RIGHT);
-    return 1;
-}
-
-// Scrollbar mode constants
-int lvgl_scrollbar_mode_off(lua_State* L) {
-    lua_pushinteger(L, LV_SCROLLBAR_MODE_OFF);
-    return 1;
-}
-
-int lvgl_scrollbar_mode_on(lua_State* L) {
-    lua_pushinteger(L, LV_SCROLLBAR_MODE_ON);
-    return 1;
-}
-
-// Label mode constants
-int lvgl_label_long_wrap(lua_State* L) {
-    lua_pushinteger(L, LV_LABEL_LONG_WRAP);
-    return 1;
-}
-
-// Span constants
-int lvgl_span_overflow_clip(lua_State* L) {
-    lua_pushinteger(L, LV_SPAN_OVERFLOW_CLIP);
-    return 1;
-}
-
-int lvgl_span_mode_break(lua_State* L) {
-    lua_pushinteger(L, LV_SPAN_MODE_BREAK);
-    return 1;
-}
-
-// Bar mode constants
-int lvgl_bar_mode_normal(lua_State* L) {
-    lua_pushinteger(L, LV_BAR_MODE_NORMAL);
-    return 1;
-}
-
-// Grad dir constants
-int lvgl_grad_dir_none(lua_State* L) {
-    lua_pushinteger(L, LV_GRAD_DIR_NONE);
-    return 1;
-}
-
-// Direction constants
-int lvgl_dir_top(lua_State* L) {
-    lua_pushinteger(L, LV_DIR_TOP);
-    return 1;
-}
-
-// Text decoration constants
-int lvgl_text_decor_none(lua_State* L) {
-    lua_pushinteger(L, LV_TEXT_DECOR_NONE);
-    return 1;
-}
-
-// Screen load animation constants
-int lvgl_scr_load_anim_none(lua_State* L) {
-    lua_pushinteger(L, LV_SCR_LOAD_ANIM_NONE);
-    return 1;
-}
-
-// Event constants
-int lvgl_event_clicked(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_CLICKED);
-    return 1;
-}
-
-int lvgl_event_value_changed(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_VALUE_CHANGED);
-    return 1;
-}
-
-int lvgl_event_ready(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_READY);
-    return 1;
-}
-
-int lvgl_event_cancel(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_CANCEL);
-    return 1;
-}
-
-int lvgl_event_focused(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_FOCUSED);
-    return 1;
-}
-
-int lvgl_event_defocused(lua_State* L) {
-    lua_pushinteger(L, LV_EVENT_DEFOCUSED);
-    return 1;
-}
-
-// Object flag constants
-int lvgl_obj_flag_hidden(lua_State* L) {
-    lua_pushinteger(L, LV_OBJ_FLAG_HIDDEN);
-    return 1;
-}
-
-int lvgl_obj_flag_scrollable(lua_State* L) {
-    lua_pushinteger(L, LV_OBJ_FLAG_SCROLLABLE);
-    return 1;
-}
-
-int lvgl_obj_flag_clickable(lua_State* L) {
-    lua_pushinteger(L, LV_OBJ_FLAG_CLICKABLE);
-    return 1;
-}
-
-// Symbol constants
-int lvgl_symbol_wifi(lua_State* L) {
-    lua_pushstring(L, LV_SYMBOL_WIFI);
-    return 1;
-}
-
-int lvgl_symbol_ok(lua_State* L) {
-    lua_pushstring(L, LV_SYMBOL_OK);
-    return 1;
-}
-
-int lvgl_symbol_close(lua_State* L) {
-    lua_pushstring(L, LV_SYMBOL_CLOSE);
-    return 1;
 }
 
 // Font constants
@@ -1227,62 +1083,6 @@ int lvgl_anim_on(lua_State* L) {
     return 1;
 }
 
-// Alignment constants
-int lvgl_align_center(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_CENTER);
-    return 1;
-}
-
-int lvgl_align_left_mid(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_LEFT_MID);
-    return 1;
-}
-
-int lvgl_align_right_mid(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_RIGHT_MID);
-    return 1;
-}
-
-int lvgl_align_top_left(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_TOP_LEFT);
-    return 1;
-}
-
-int lvgl_align_top_mid(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_TOP_MID);
-    return 1;
-}
-
-int lvgl_align_top_right(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_TOP_RIGHT);
-    return 1;
-}
-
-int lvgl_align_bottom_left(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_BOTTOM_LEFT);
-    return 1;
-}
-
-int lvgl_align_bottom_mid(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_BOTTOM_MID);
-    return 1;
-}
-
-int lvgl_align_bottom_right(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_BOTTOM_RIGHT);
-    return 1;
-}
-
-int lvgl_align_out_top_mid(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_OUT_TOP_MID);
-    return 1;
-}
-
-int lvgl_align_out_bottom_left(lua_State* L) {
-    lua_pushinteger(L, LV_ALIGN_OUT_BOTTOM_LEFT);
-    return 1;
-}
-
 // Special value functions
 int lvgl_pct(lua_State* L) {
     int32_t v = luaL_checkinteger(L, 1);
@@ -1347,6 +1147,8 @@ static const luaL_Reg lvgl_functions[] = {
     {"obj_set_style_pad_left", lvgl_obj_set_style_pad_left},
     {"obj_set_style_pad_right", lvgl_obj_set_style_pad_right},
     {"obj_set_style_shadow_width", lvgl_obj_set_style_shadow_width},
+    {"obj_set_style_shadow_opa", lvgl_obj_set_style_shadow_opa},
+    {"obj_set_style_shadow_ofs_y", lvgl_obj_set_style_shadow_ofs_y},
     {"obj_set_style_text_opa", lvgl_obj_set_style_text_opa},
     {"obj_set_style_text_letter_space", lvgl_obj_set_style_text_letter_space},
     {"obj_set_style_text_line_space", lvgl_obj_set_style_text_line_space},
@@ -1437,53 +1239,6 @@ static const luaL_Reg lvgl_functions[] = {
     {"font_montserrat_20", lvgl_font_montserrat_20},
     {"font_montserrat_12", lvgl_font_montserrat_12},
     
-    // Constants functions
-    {"PART_MAIN", lvgl_part_main},
-    {"PART_INDICATOR", lvgl_part_indicator},
-    {"PART_KNOB", lvgl_part_knob},
-    {"STATE_DEFAULT", lvgl_state_default},
-    {"STATE_CHECKED", lvgl_state_checked},
-    {"ALIGN_CENTER", lvgl_align_center},
-    {"ALIGN_TOP_MID", lvgl_align_top_mid},
-    {"ALIGN_LEFT_MID", lvgl_align_left_mid},
-    {"ALIGN_RIGHT_MID", lvgl_align_right_mid},
-    {"ALIGN_BOTTOM_MID", lvgl_align_bottom_mid},
-    {"TEXT_ALIGN_LEFT", lvgl_text_align_left},
-    {"TEXT_ALIGN_CENTER", lvgl_text_align_center},
-    {"TEXT_ALIGN_RIGHT", lvgl_text_align_right},
-    {"SPAN_MODE_BREAK", lvgl_span_mode_break},
-    {"SPAN_OVERFLOW_CLIP", lvgl_span_overflow_clip},
-    {"TEXT_DECOR_NONE", lvgl_text_decor_none},
-    {"BORDER_SIDE_FULL", lvgl_border_side_full},
-    {"GRAD_DIR_NONE", lvgl_grad_dir_none},
-    {"DIR_TOP", lvgl_dir_top},
-    {"SCROLLBAR_MODE_OFF", lvgl_scrollbar_mode_off},
-    {"SCROLLBAR_MODE_ON", lvgl_scrollbar_mode_on},
-    {"LABEL_LONG_WRAP", lvgl_label_long_wrap},
-    {"BAR_MODE_NORMAL", lvgl_bar_mode_normal},
-    {"ANIM_OFF", lvgl_anim_off},
-    {"SCR_LOAD_ANIM_NONE", lvgl_scr_load_anim_none},
-    {"EVENT_CLICKED", lvgl_event_clicked},
-    {"EVENT_VALUE_CHANGED", lvgl_event_value_changed},
-    {"EVENT_READY", lvgl_event_ready},
-    {"EVENT_CANCEL", lvgl_event_cancel},
-    {"EVENT_FOCUSED", lvgl_event_focused},
-    {"EVENT_DEFOCUSED", lvgl_event_defocused},
-    {"OBJ_FLAG_HIDDEN", lvgl_obj_flag_hidden},
-    {"OBJ_FLAG_SCROLLABLE", lvgl_obj_flag_scrollable},
-    {"OBJ_FLAG_CLICKABLE", lvgl_obj_flag_clickable},
-    {"SYMBOL_WIFI", lvgl_symbol_wifi},
-    {"SYMBOL_OK", lvgl_symbol_ok},
-    {"SYMBOL_CLOSE", lvgl_symbol_close},
-    
-    // Additional alignment constants
-    {"ALIGN_TOP_LEFT", lvgl_align_top_left},
-    {"ALIGN_TOP_RIGHT", lvgl_align_top_right},
-    {"ALIGN_BOTTOM_LEFT", lvgl_align_bottom_left},
-    {"ALIGN_BOTTOM_RIGHT", lvgl_align_bottom_right},
-    {"ALIGN_OUT_TOP_MID", lvgl_align_out_top_mid},
-    {"ALIGN_OUT_BOTTOM_LEFT", lvgl_align_out_bottom_left},
-    
     // Animation constants
     {"ANIM_ON", lvgl_anim_on},
 
@@ -1503,6 +1258,36 @@ static const luaL_Reg lvgl_functions[] = {
 
 // This function will be called from luaopen_lvgl to register all constants
 static void register_lvgl_constants(lua_State* L) {
+    // Parts
+    LUA_REG_CONST_INT(L, "PART_MAIN", LV_PART_MAIN);
+    LUA_REG_CONST_INT(L, "PART_INDICATOR", LV_PART_INDICATOR);
+    LUA_REG_CONST_INT(L, "PART_KNOB", LV_PART_KNOB);
+
+    // States
+    LUA_REG_CONST_INT(L, "STATE_DEFAULT", LV_STATE_DEFAULT);
+    LUA_REG_CONST_INT(L, "STATE_CHECKED", LV_STATE_CHECKED);
+
+    // Alignments
+    LUA_REG_CONST_INT(L, "ALIGN_CENTER", LV_ALIGN_CENTER);
+    LUA_REG_CONST_INT(L, "ALIGN_TOP_LEFT", LV_ALIGN_TOP_LEFT);
+    LUA_REG_CONST_INT(L, "ALIGN_TOP_MID", LV_ALIGN_TOP_MID);
+    LUA_REG_CONST_INT(L, "ALIGN_TOP_RIGHT", LV_ALIGN_TOP_RIGHT);
+    LUA_REG_CONST_INT(L, "ALIGN_BOTTOM_LEFT", LV_ALIGN_BOTTOM_LEFT);
+    LUA_REG_CONST_INT(L, "ALIGN_BOTTOM_MID", LV_ALIGN_BOTTOM_MID);
+    LUA_REG_CONST_INT(L, "ALIGN_BOTTOM_RIGHT", LV_ALIGN_BOTTOM_RIGHT);
+    LUA_REG_CONST_INT(L, "ALIGN_LEFT_MID", LV_ALIGN_LEFT_MID);
+    LUA_REG_CONST_INT(L, "ALIGN_RIGHT_MID", LV_ALIGN_RIGHT_MID);
+    LUA_REG_CONST_INT(L, "ALIGN_OUT_TOP_MID", LV_ALIGN_OUT_TOP_MID);
+    LUA_REG_CONST_INT(L, "ALIGN_OUT_BOTTOM_LEFT", LV_ALIGN_OUT_BOTTOM_LEFT);
+
+    // Text Alignments
+    LUA_REG_CONST_INT(L, "TEXT_ALIGN_LEFT", LV_TEXT_ALIGN_LEFT);
+    LUA_REG_CONST_INT(L, "TEXT_ALIGN_CENTER", LV_TEXT_ALIGN_CENTER);
+    LUA_REG_CONST_INT(L, "TEXT_ALIGN_RIGHT", LV_TEXT_ALIGN_RIGHT);
+
+    // Directions
+    LUA_REG_CONST_INT(L, "DIR_TOP", LV_DIR_TOP);
+
     // Flex Flow
     LUA_REG_CONST_INT(L, "FLEX_FLOW_ROW", LV_FLEX_FLOW_ROW);
     LUA_REG_CONST_INT(L, "FLEX_FLOW_COLUMN", LV_FLEX_FLOW_COLUMN);
@@ -1524,6 +1309,40 @@ static void register_lvgl_constants(lua_State* L) {
     // Layouts
     LUA_REG_CONST_INT(L, "LAYOUT_FLEX", LV_LAYOUT_FLEX);
     LUA_REG_CONST_INT(L, "LAYOUT_GRID", LV_LAYOUT_GRID);
+
+    // Other constants
+    LUA_REG_CONST_INT(L, "BORDER_SIDE_FULL", LV_BORDER_SIDE_FULL);
+    LUA_REG_CONST_INT(L, "GRAD_DIR_NONE", LV_GRAD_DIR_NONE);
+    LUA_REG_CONST_INT(L, "SCROLLBAR_MODE_OFF", LV_SCROLLBAR_MODE_OFF);
+    LUA_REG_CONST_INT(L, "SCROLLBAR_MODE_ON", LV_SCROLLBAR_MODE_ON);
+    LUA_REG_CONST_INT(L, "LABEL_LONG_WRAP", LV_LABEL_LONG_WRAP);
+    LUA_REG_CONST_INT(L, "BAR_MODE_NORMAL", LV_BAR_MODE_NORMAL);
+    LUA_REG_CONST_INT(L, "SCR_LOAD_ANIM_NONE", LV_SCR_LOAD_ANIM_NONE);
+    LUA_REG_CONST_INT(L, "TEXT_DECOR_NONE", LV_TEXT_DECOR_NONE);
+    LUA_REG_CONST_INT(L, "SPAN_MODE_BREAK", LV_SPAN_MODE_BREAK);
+    LUA_REG_CONST_INT(L, "SPAN_OVERFLOW_CLIP", LV_SPAN_OVERFLOW_CLIP);
+
+    // Events
+    LUA_REG_CONST_INT(L, "EVENT_ALL", LV_EVENT_ALL);
+    LUA_REG_CONST_INT(L, "EVENT_CLICKED", LV_EVENT_CLICKED);
+    LUA_REG_CONST_INT(L, "EVENT_VALUE_CHANGED", LV_EVENT_VALUE_CHANGED);
+    LUA_REG_CONST_INT(L, "EVENT_READY", LV_EVENT_READY);
+    LUA_REG_CONST_INT(L, "EVENT_CANCEL", LV_EVENT_CANCEL);
+    LUA_REG_CONST_INT(L, "EVENT_FOCUSED", LV_EVENT_FOCUSED);
+    LUA_REG_CONST_INT(L, "EVENT_DEFOCUSED", LV_EVENT_DEFOCUSED);
+
+    // Object Flags
+    LUA_REG_CONST_INT(L, "OBJ_FLAG_HIDDEN", LV_OBJ_FLAG_HIDDEN);
+    LUA_REG_CONST_INT(L, "OBJ_FLAG_SCROLLABLE", LV_OBJ_FLAG_SCROLLABLE);
+    LUA_REG_CONST_INT(L, "OBJ_FLAG_CLICKABLE", LV_OBJ_FLAG_CLICKABLE);
+
+    // Symbols (as strings)
+    lua_pushstring(L, LV_SYMBOL_WIFI);
+    lua_setfield(L, -2, "SYMBOL_WIFI");
+    lua_pushstring(L, LV_SYMBOL_OK);
+    lua_setfield(L, -2, "SYMBOL_OK");
+    lua_pushstring(L, LV_SYMBOL_CLOSE);
+    lua_setfield(L, -2, "SYMBOL_CLOSE");
 }
 
 int luaopen_lvgl(lua_State* L) {

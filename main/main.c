@@ -19,6 +19,7 @@
 #include "lua_engine.h"
 #include "main_simple_lua.h"
 #include "system_bindings.h"
+#include "sdcard_driver.h" // Add sdcard driver header
 
 static const char *TAG = "MAIN_APP";
 
@@ -118,8 +119,21 @@ static void gui_task(void *pvParameter) {
     (void) pvParameter;
     
     ESP_LOGI(TAG, "GUI task starting execution");
-    
-    bool sdcard_mounted = system_bindings_init_sdcard();
+
+    // Initialize and mount SD card using the correct driver
+    esp_err_t ret_sd_init = sdcard_init();
+    bool sdcard_mounted = false;
+    if (ret_sd_init == ESP_OK) {
+        esp_err_t ret_sd_mount = sdcard_mount(NULL, 5);
+        if (ret_sd_mount == ESP_OK) {
+            sdcard_mounted = true;
+            ESP_LOGI(TAG, "SD card initialized and mounted successfully.");
+        } else {
+            ESP_LOGE(TAG, "Failed to mount SD card: %s", esp_err_to_name(ret_sd_mount));
+        }
+    } else {
+        ESP_LOGE(TAG, "Failed to initialize SD card: %s", esp_err_to_name(ret_sd_init));
+    }
 
     lv_init();
     lvgl_driver_init();
