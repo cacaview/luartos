@@ -964,6 +964,38 @@ int lvgl_obj_get_height(lua_State* L) {
     return 1;
 }
 
+// Flexbox layout functions
+int lvgl_obj_set_layout(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    uint32_t layout = luaL_checkinteger(L, 2);
+    lv_obj_set_layout(obj, layout);
+    return 0;
+}
+
+int lvgl_obj_set_flex_flow(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_flex_flow_t flow = luaL_checkinteger(L, 2);
+    lv_obj_set_flex_flow(obj, flow);
+    return 0;
+}
+
+int lvgl_obj_set_flex_align(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_flex_align_t main_place = luaL_checkinteger(L, 2);
+    lv_flex_align_t cross_place = luaL_checkinteger(L, 3);
+    lv_flex_align_t track_cross_place = luaL_checkinteger(L, 4);
+    lv_obj_set_flex_align(obj, main_place, cross_place, track_cross_place);
+    return 0;
+}
+
+int lvgl_obj_set_style_pad_gap(lua_State* L) {
+    lv_obj_t* obj = check_lvgl_obj(L, 1);
+    lv_coord_t value = luaL_checkinteger(L, 2);
+    lv_style_selector_t selector = luaL_checkinteger(L, 3);
+    lv_obj_set_style_pad_gap(obj, value, selector);
+    return 0;
+}
+
 // Widget functions for missing entries
 int lvgl_img_create(lua_State* L) {
     lv_obj_t* parent = check_lvgl_obj(L, 1);
@@ -1454,32 +1486,81 @@ static const luaL_Reg lvgl_functions[] = {
     
     // Animation constants
     {"ANIM_ON", lvgl_anim_on},
+
+    // Layout and Flexbox bindings
+    {"obj_set_layout", lvgl_obj_set_layout},
+    {"obj_set_flex_flow", lvgl_obj_set_flex_flow},
+    {"obj_set_flex_align", lvgl_obj_set_flex_align},
+    {"obj_set_style_pad_gap", lvgl_obj_set_style_pad_gap},
     
     {NULL, NULL}
 };
 
-static const luaL_Reg lvgl_obj_methods[] = {
-    {"__gc", lvgl_obj_gc},
-    {"__tostring", lvgl_obj_tostring},
-    {NULL, NULL}
-};
+// Helper macro to register a constant value
+#define LUA_REG_CONST_INT(L, name, value) \
+    lua_pushinteger(L, value); \
+    lua_setfield(L, -2, name);
+
+// This function will be called from luaopen_lvgl to register all constants
+static void register_lvgl_constants(lua_State* L) {
+    // Flex Flow
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_ROW", LV_FLEX_FLOW_ROW);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_COLUMN", LV_FLEX_FLOW_COLUMN);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_ROW_WRAP", LV_FLEX_FLOW_ROW_WRAP);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_COLUMN_WRAP", LV_FLEX_FLOW_COLUMN_WRAP);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_ROW_REVERSE", LV_FLEX_FLOW_ROW_REVERSE);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_COLUMN_REVERSE", LV_FLEX_FLOW_COLUMN_REVERSE);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_ROW_WRAP_REVERSE", LV_FLEX_FLOW_ROW_WRAP_REVERSE);
+    LUA_REG_CONST_INT(L, "FLEX_FLOW_COLUMN_WRAP_REVERSE", LV_FLEX_FLOW_COLUMN_WRAP_REVERSE);
+
+    // Flex Align
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_START", LV_FLEX_ALIGN_START);
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_END", LV_FLEX_ALIGN_END);
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_CENTER", LV_FLEX_ALIGN_CENTER);
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_SPACE_EVENLY", LV_FLEX_ALIGN_SPACE_EVENLY);
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_SPACE_AROUND", LV_FLEX_ALIGN_SPACE_AROUND);
+    LUA_REG_CONST_INT(L, "FLEX_ALIGN_SPACE_BETWEEN", LV_FLEX_ALIGN_SPACE_BETWEEN);
+
+    // Layouts
+    LUA_REG_CONST_INT(L, "LAYOUT_FLEX", LV_LAYOUT_FLEX);
+    LUA_REG_CONST_INT(L, "LAYOUT_GRID", LV_LAYOUT_GRID);
+}
 
 int luaopen_lvgl(lua_State* L) {
     ESP_LOGI(TAG, "Registering LVGL bindings...");
-    
-    // Create object metatable
-    luaL_newmetatable(L, LVGL_OBJ_METATABLE);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, -2, "__index");
-    luaL_setfuncs(L, lvgl_obj_methods, 0);
-    lua_pop(L, 1);
-    
-    // Create lvgl table
+
+    // Create the main lvgl library table and register functions
     luaL_newlib(L, lvgl_functions);
-    
-    // Set global lvgl table
-    lua_setglobal(L, "lvgl");
-    
+    int lib_idx = lua_gettop(L);
+
+    // Create the metatable for LVGL objects
+    luaL_newmetatable(L, LVGL_OBJ_METATABLE);
+    int meta_idx = lua_gettop(L);
+
+    // Define metatable methods locally to avoid static analysis issues.
+    const luaL_Reg obj_methods[] = {
+        {"__gc", lvgl_obj_gc},
+        {"__tostring", lvgl_obj_tostring},
+        {NULL, NULL}
+    };
+
+    // Set __index = lvgl_table
+    // This makes obj:method() work by looking up methods in the main lvgl table
+    lua_pushvalue(L, lib_idx);
+    lua_setfield(L, meta_idx, "__index");
+
+    // Register the __gc and __tostring methods to the metatable
+    luaL_setfuncs(L, obj_methods, 0);
+
+    lua_pop(L, 1); // Pop the metatable
+
+    // Register all constants into the main lvgl library table
+    lua_pushvalue(L, lib_idx); // Push library table to top
+    register_lvgl_constants(L);
+    lua_pop(L, 1); // Pop library table
+
     ESP_LOGI(TAG, "LVGL bindings registered successfully");
-    return 0;
+    
+    // Return the main library table, which is already on the stack
+    return 1;
 }

@@ -1,6 +1,7 @@
 #include "lua_engine.h"
 #include "lvgl_bindings.h"
 #include "system_bindings.h"
+#include "sdcard_lua_bindings.h" // Add sdcard bindings header
 #include <string.h>
 
 static const char *TAG = "LUA_ENGINE";
@@ -96,21 +97,21 @@ lua_State* lua_engine_init(void) {
     size_t total_alloc, psram_alloc, internal_alloc;
     lua_get_memory_stats(L, &total_alloc, &psram_alloc, &internal_alloc);
     
-    // Register LVGL bindings
-    ESP_LOGI(TAG, "Registering LVGL bindings...");
-    if (luaopen_lvgl(L) != 0) {
-        ESP_LOGE(TAG, "Failed to register LVGL bindings");
-        lua_close(L);
-        return NULL;
+    // Preload custom C modules to make them available to 'require'
+    ESP_LOGI(TAG, "Preloading custom C modules...");
+    const luaL_Reg loadedlibs[] = {
+        {"lvgl", luaopen_lvgl},
+        {"system", luaopen_system},
+        {"sdcard", luaopen_sdcard},
+        {NULL, NULL}
+    };
+
+    for (const luaL_Reg *lib = loadedlibs; lib->name; lib++) {
+        luaL_requiref(L, lib->name, lib->func, 1);
+        // Also assign it to a global variable of the same name for legacy script compatibility
+        lua_setglobal(L, lib->name);
     }
-    
-    // Register system bindings
-    ESP_LOGI(TAG, "Registering system bindings...");
-    if (luaopen_system(L) != 0) {
-        ESP_LOGE(TAG, "Failed to register system bindings");
-        lua_close(L);
-        return NULL;
-    }
+    ESP_LOGI(TAG, "Custom C modules preloaded.");
     
     // Log final memory usage
     ESP_LOGI(TAG, "Lua engine initialized successfully");

@@ -270,7 +270,7 @@ esp_err_t sdcard_delete_file(const char* filename)
     return ESP_OK;
 }
 
-esp_err_t sdcard_list_files(const char* path, void (*callback)(const char* filename, size_t size, void* user_data), void* user_data)
+esp_err_t sdcard_list_files(const char* path, void (*callback)(const char* filename, uint8_t type, size_t size, void* user_data), void* user_data)
 {
     if (!g_sdcard_config.mounted) {
         ESP_LOGE(TAG, "SD card not mounted");
@@ -292,16 +292,24 @@ esp_err_t sdcard_list_files(const char* path, void (*callback)(const char* filen
     
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {  // Regular file
+        // Ignore "." and ".." entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        size_t size = 0;
+        // Get file size only for regular files
+        if (entry->d_type == DT_REG) {
             struct stat st;
             char fullpath[512];
             snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
-            
             if (stat(fullpath, &st) == 0) {
-                if (callback) {
-                    callback(entry->d_name, st.st_size, user_data);
-                }
+                size = st.st_size;
             }
+        }
+
+        if (callback) {
+            callback(entry->d_name, entry->d_type, size, user_data);
         }
     }
     

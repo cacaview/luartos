@@ -2,6 +2,7 @@
 #include "sdcard_driver.h"
 #include "esp_log.h"
 #include <string.h>
+#include <dirent.h> // Add this for DT_DIR and DT_REG
 
 static const char *TAG = "SDCARD_LUA";
 
@@ -13,7 +14,7 @@ typedef struct {
 } lua_list_callback_data_t;
 
 // Callback for file listing
-static void lua_list_files_callback(const char* filename, size_t size, void* user_data)
+static void lua_list_files_callback(const char* filename, uint8_t type, size_t size, void* user_data)
 {
     lua_list_callback_data_t *data = (lua_list_callback_data_t*)user_data;
     lua_State *L = data->L;
@@ -24,6 +25,17 @@ static void lua_list_files_callback(const char* filename, size_t size, void* use
     // Set filename
     lua_pushstring(L, "name");
     lua_pushstring(L, filename);
+    lua_settable(L, -3);
+
+    // Set type (d for directory, f for file)
+    lua_pushstring(L, "type");
+    if (type == DT_DIR) {
+        lua_pushstring(L, "d");
+    } else if (type == DT_REG) {
+        lua_pushstring(L, "f");
+    } else {
+        lua_pushstring(L, "u"); // Unknown
+    }
     lua_settable(L, -3);
     
     // Set size
@@ -167,7 +179,7 @@ static int lua_sdcard_list_files(lua_State *L)
         .count = 0
     };
     
-    esp_err_t ret = sdcard_list_files(path, lua_list_files_callback, &callback_data);
+    esp_err_t ret = sdcard_list_files(path, (void (*)(const char*, uint8_t, size_t, void*))lua_list_files_callback, &callback_data);
     if (ret != ESP_OK) {
         lua_pushnil(L);
         lua_pushstring(L, "Failed to list files");
@@ -264,19 +276,9 @@ static const luaL_Reg sdcard_funcs[] = {
 // Register SD card module
 int luaopen_sdcard(lua_State *L)
 {
-    // Create sdcard table manually to avoid version issues
-    lua_newtable(L);
-    
-    // Register functions
-    const luaL_Reg *l = sdcard_funcs;
-    for (; l->name != NULL; l++) {
-        lua_pushcfunction(L, l->func);
-        lua_setfield(L, -2, l->name);
-    }
-    
-    // Add constants
-    lua_pushstring(L, SDCARD_MOUNT_POINT);
-    lua_setfield(L, -2, "MOUNT_POINT");
-    
+    // Manually create the library table to bypass the luaL_checkversion call
+    // inside luaL_newlib, which is failing due to a build environment mismatch.
+    lua_createtable(L, 0, sizeof(sdcard_funcs) / sizeof(sdcard_funcs[0]) - 1);
+    luaL_setfuncs(L, sdcard_funcs, 0);
     return 1;
 }

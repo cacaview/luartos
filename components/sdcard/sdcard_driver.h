@@ -19,11 +19,11 @@ extern "C" {
 // SD card configuration
 #define SDCARD_MOUNT_POINT "/sdcard"
 #define SDCARD_SPI_HOST SPI3_HOST
-#define SDCARD_MAX_TRANSFER_SIZE 8192   // 8KB max transfer for compatibility
-#define SDCARD_CS_GPIO 9
-#define SDCARD_SCK_GPIO 11  
-#define SDCARD_MOSI_GPIO 42
-#define SDCARD_MISO_GPIO 41
+#define SDCARD_MAX_TRANSFER_SIZE 4096   // 4KB, a more common and compatible size
+#define SDCARD_CS_GPIO GPIO_NUM_9
+#define SDCARD_SCK_GPIO GPIO_NUM_11
+#define SDCARD_MOSI_GPIO GPIO_NUM_42
+#define SDCARD_MISO_GPIO GPIO_NUM_41
 
 // SD card driver structure
 typedef struct {
@@ -100,11 +100,11 @@ esp_err_t sdcard_delete_file(const char* filename);
 /**
  * @brief List files in directory
  * @param path Directory path
- * @param callback Callback function for each file
+ * @param callback Callback function for each entry (file or directory)
  * @param user_data User data passed to callback
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t sdcard_list_files(const char* path, void (*callback)(const char* filename, size_t size, void* user_data), void* user_data);
+esp_err_t sdcard_list_files(const char* path, void (*callback)(const char* filename, uint8_t type, size_t size, void* user_data), void* user_data);
 
 /**
  * @brief Get disk usage information
