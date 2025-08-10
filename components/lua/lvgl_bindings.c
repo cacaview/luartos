@@ -743,6 +743,15 @@ int lvgl_event_get_target(lua_State* L) {
     return 1;
 }
 
+int lvgl_event_get_user_data(lua_State* L) {
+    lv_event_t* event = (lv_event_t*)lua_touserdata(L, 1);
+    void* user_data = lv_event_get_user_data(event);
+    // In our case, user_data is a pointer to the lua_event_data_t struct
+    // We push it as lightuserdata
+    lua_pushlightuserdata(L, user_data);
+    return 1;
+}
+
 int lvgl_event_send(lua_State* L) {
     lv_obj_t* obj = check_lvgl_obj(L, 1);
     lv_event_code_t code = luaL_checkinteger(L, 2);
@@ -1224,6 +1233,7 @@ static const luaL_Reg lvgl_functions[] = {
     // Event functions
     {"event_get_code", lvgl_event_get_code},
     {"event_get_target", lvgl_event_get_target},
+    {"event_get_user_data", lvgl_event_get_user_data},
     {"event_send", lvgl_event_send},
     
     // Utility functions
